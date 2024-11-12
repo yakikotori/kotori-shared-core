@@ -1,4 +1,4 @@
-namespace Kotori.SharedCore;
+namespace Kotori.SharedCore.UseCases;
 
 public interface ICommand<in TCommand, TResult>
 {
