@@ -23,7 +23,7 @@ public class ServicesUseCaseBus : IUseCaseBus
 
     public Task<TResult> ExecuteCommandAsync<TCommand, TResult>(TCommand command)
     {
-        if (_serviceProvider.GetService(typeof(IQuery<TCommand, TResult>)) is not IQuery<TCommand, TResult> commandService)
+        if (_serviceProvider.GetService(typeof(ICommand<TCommand, TResult>)) is not ICommand<TCommand, TResult> commandService)
         {
             throw new CommandNotFoundException(typeof(TCommand), typeof(TResult));
         }
