@@ -1,5 +1,4 @@
 using System.Collections;
-using Kotori.SharedCore.Exceptions;
 
 namespace Kotori.SharedCore;
 
@@ -15,21 +14,17 @@ public class ServicesDomainEventDispatcher : IDomainEventDispatcher
     public Task DispatchAsync(IDomainEvent domainEvent)
     {
         var handlerType = typeof(IDomainEventHandler<>).MakeGenericType(domainEvent.GetType());
-        
         var handlerEnumerableType = typeof(IEnumerable<>).MakeGenericType(handlerType);
 
-        var handlers = _serviceProvider.GetService(handlerEnumerableType);
+        var handlerServices = _serviceProvider.GetService(handlerEnumerableType);
         
-        if (handlers is null)
+        foreach (var handlerService in (IEnumerable)handlerServices!)
         {
-            throw new DomainEventHandlerNotFoundException(domainEvent.GetType());
-        }
-        
-        foreach (var handler in (IEnumerable)handlers)
-        {
-            var handlerMethod = handlerType.GetMethod(nameof(IDomainEventHandler<IDomainEvent>.HandleAsync))!;
+            const string handleMethodName = nameof(IDomainEventHandler<IDomainEvent>.HandleAsync);
             
-            _ = (Task)handlerMethod.Invoke(handler, [domainEvent])!;
+            var handlerMethod = handlerType.GetMethod(handleMethodName)!;
+            
+            _ = (Task)handlerMethod.Invoke(handlerService, [domainEvent])!;
         }
         
         return Task.CompletedTask;
