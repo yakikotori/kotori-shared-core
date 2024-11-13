@@ -10,9 +10,12 @@ public class ServicesDomainEventDispatcherTests
     {
         var services = new ServiceCollection();
 
-        var handler = new TestDomainEventHandler();
+        var handlers = Enumerable
+            .Range(0, Random.Shared.Next(10))
+            .Select(_ => new TestDomainEventHandler())
+            .ToList();
         
-        services.AddScoped<IDomainEventHandler<TestDomainEvent>>(_ => handler);
+        handlers.ForEach(handler => services.AddScoped<IDomainEventHandler<TestDomainEvent>>(_ => handler));
 
         services.AddScoped<IDomainEventDispatcher, ServicesDomainEventDispatcher>();
         
@@ -21,7 +24,7 @@ public class ServicesDomainEventDispatcherTests
         var domainEventDispatcher = serviceProvider.GetRequiredService<IDomainEventDispatcher>();
 
         await domainEventDispatcher.DispatchAsync(new TestDomainEvent());
-        
-        handler.Handled.Should().BeTrue();
+
+        handlers.All(handler => handler.Handled).Should().BeTrue();
     }
 }
