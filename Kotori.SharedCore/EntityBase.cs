@@ -1,3 +1,5 @@
+using Kotori.SharedCore.DomainEvents;
+
 namespace Kotori.SharedCore;
 
 public abstract class EntityBase

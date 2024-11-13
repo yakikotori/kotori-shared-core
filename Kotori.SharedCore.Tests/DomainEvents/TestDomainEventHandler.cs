@@ -1,4 +1,6 @@
-namespace Kotori.SharedCore.Tests;
+using Kotori.SharedCore.DomainEvents;
+
+namespace Kotori.SharedCore.Tests.DomainEvents;
 
 public class TestDomainEventHandler : IDomainEventHandler<TestDomainEvent>
 {

@@ -1,6 +1,6 @@
 using System.Collections;
 
-namespace Kotori.SharedCore;
+namespace Kotori.SharedCore.DomainEvents;
 
 public class ServicesDomainEventDispatcher : IDomainEventDispatcher
 {

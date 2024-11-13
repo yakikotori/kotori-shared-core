@@ -1,7 +1,8 @@
 using FluentAssertions;
+using Kotori.SharedCore.DomainEvents;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Kotori.SharedCore.Tests;
+namespace Kotori.SharedCore.Tests.DomainEvents;
 
 public class ServicesDomainEventDispatcherTests
 {

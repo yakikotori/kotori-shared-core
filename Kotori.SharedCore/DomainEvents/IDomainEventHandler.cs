@@ -1,4 +1,4 @@
-namespace Kotori.SharedCore;
+namespace Kotori.SharedCore.DomainEvents;
 
 public interface IDomainEventHandler<T> where T : IDomainEvent
 {
