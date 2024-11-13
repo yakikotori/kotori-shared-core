@@ -2,11 +2,11 @@ using Kotori.SharedCore.UseCases;
 
 namespace Kotori.SharedCore.Tests.UseCases;
 
-public class TestCommand : ICommand<string, string>
+public class TestCommandHandler : ICommandHandler<string, string>
 {
     private readonly Func<string, string> _execute;
 
-    public TestCommand(Func<string, string> execute)
+    public TestCommandHandler(Func<string, string> execute)
     {
         _execute = execute;
     }

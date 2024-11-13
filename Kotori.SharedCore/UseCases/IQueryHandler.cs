@@ -1,6 +1,6 @@
 namespace Kotori.SharedCore.UseCases;
 
-public interface IQuery<in TQuery, TResponse>
+public interface IQueryHandler<in TQuery, TResponse>
 {
     Task<TResponse> ExecuteAsync(TQuery query);
 }

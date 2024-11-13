@@ -2,11 +2,11 @@ using Kotori.SharedCore.UseCases;
 
 namespace Kotori.SharedCore.Tests.UseCases;
 
-public class TestQuery : IQuery<string, string>
+public class TestQueryHandler : IQueryHandler<string, string>
 {
     private readonly Dictionary<string, string> _data;
 
-    public TestQuery(Dictionary<string, string> data)
+    public TestQueryHandler(Dictionary<string, string> data)
     {
         _data = data;
     }

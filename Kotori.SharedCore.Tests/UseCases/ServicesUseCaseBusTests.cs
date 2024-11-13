@@ -16,7 +16,7 @@ public class ServicesUseCaseBusTests
             {"test", "meow"}
         };
         
-        services.AddScoped<IQuery<string, string>>(_ => new TestQuery(data));
+        services.AddScoped<IQueryHandler<string, string>>(_ => new TestQueryHandler(data));
 
         services.AddScoped<IUseCaseBus, ServicesUseCaseBus>();
 
@@ -34,7 +34,7 @@ public class ServicesUseCaseBusTests
     {
         var services = new ServiceCollection();
         
-        services.AddScoped<ICommand<string, string>>(_ => new TestCommand(input => input.Trim()));
+        services.AddScoped<ICommandHandler<string, string>>(_ => new TestCommandHandler(input => input.Trim()));
 
         services.AddScoped<IUseCaseBus, ServicesUseCaseBus>();
 

@@ -13,7 +13,7 @@ public class ServicesUseCaseBus : IUseCaseBus
 
     public Task<TResponse> ExecuteQueryAsync<TQuery, TResponse>(TQuery query)
     {
-        if (_serviceProvider.GetService(typeof(IQuery<TQuery, TResponse>)) is not IQuery<TQuery, TResponse> queryService)
+        if (_serviceProvider.GetService(typeof(IQueryHandler<TQuery, TResponse>)) is not IQueryHandler<TQuery, TResponse> queryService)
         {
             throw new QueryNotFoundException(typeof(TQuery), typeof(TResponse));
         }
@@ -23,7 +23,7 @@ public class ServicesUseCaseBus : IUseCaseBus
 
     public Task<TResult> ExecuteCommandAsync<TCommand, TResult>(TCommand command)
     {
-        if (_serviceProvider.GetService(typeof(ICommand<TCommand, TResult>)) is not ICommand<TCommand, TResult> commandService)
+        if (_serviceProvider.GetService(typeof(ICommandHandler<TCommand, TResult>)) is not ICommandHandler<TCommand, TResult> commandService)
         {
             throw new CommandNotFoundException(typeof(TCommand), typeof(TResult));
         }
