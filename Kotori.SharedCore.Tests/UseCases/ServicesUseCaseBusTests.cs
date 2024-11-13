@@ -16,7 +16,7 @@ public class ServicesUseCaseBusTests
             {"test", "meow"}
         };
         
-        services.AddScoped<IQueryHandler<string, string>>(_ => new TestQueryHandler(data));
+        services.AddScoped<IQueryHandler<TestQuery, string>>(_ => new TestQueryHandler(data));
 
         services.AddScoped<IUseCaseBus, ServicesUseCaseBus>();
 
@@ -24,7 +24,7 @@ public class ServicesUseCaseBusTests
 
         var bus = serviceProvider.GetRequiredService<IUseCaseBus>();
 
-        var response = await bus.ExecuteQueryAsync<string, string>("test");
+        var response = await bus.ExecuteQueryAsync<TestQuery, string>(new TestQuery("test"));
 
         response.Should().Be("meow");
     }

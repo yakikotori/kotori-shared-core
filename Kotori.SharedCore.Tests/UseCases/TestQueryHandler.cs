@@ -2,7 +2,7 @@ using Kotori.SharedCore.UseCases;
 
 namespace Kotori.SharedCore.Tests.UseCases;
 
-public class TestQueryHandler : IQueryHandler<string, string>
+public class TestQueryHandler : IQueryHandler<TestQuery, string>
 {
     private readonly Dictionary<string, string> _data;
 
@@ -11,6 +11,6 @@ public class TestQueryHandler : IQueryHandler<string, string>
         _data = data;
     }
 
-    public Task<string> ExecuteAsync(string query)
-        => Task.FromResult(_data[query]);
+    public Task<string> ExecuteAsync(TestQuery query)
+        => Task.FromResult(_data[query.Text]);
 }

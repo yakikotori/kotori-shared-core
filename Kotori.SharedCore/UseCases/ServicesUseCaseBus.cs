@@ -11,7 +11,7 @@ public class ServicesUseCaseBus : IUseCaseBus
         _serviceProvider = serviceProvider;
     }
 
-    public Task<TResponse> ExecuteQueryAsync<TQuery, TResponse>(TQuery query)
+    public Task<TResponse> ExecuteQueryAsync<TQuery, TResponse>(TQuery query) where TQuery : IQuery
     {
         if (_serviceProvider.GetService(typeof(IQueryHandler<TQuery, TResponse>)) is not IQueryHandler<TQuery, TResponse> queryService)
         {
