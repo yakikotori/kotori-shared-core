@@ -4,5 +4,5 @@ public interface IUseCaseBus
 {
     Task<TResponse> ExecuteQueryAsync<TQuery, TResponse>(TQuery query) where TQuery : IQuery;
     
-    Task<TResult> ExecuteCommandAsync<TCommand, TResult>(TCommand command);
+    Task<TResult> ExecuteCommandAsync<TCommand, TResult>(TCommand command) where TCommand : ICommand;
 }

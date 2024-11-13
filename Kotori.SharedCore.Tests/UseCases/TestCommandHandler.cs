@@ -2,7 +2,7 @@ using Kotori.SharedCore.UseCases;
 
 namespace Kotori.SharedCore.Tests.UseCases;
 
-public class TestCommandHandler : ICommandHandler<string, string>
+public class TestCommandHandler : ICommandHandler<TestCommand, string>
 {
     private readonly Func<string, string> _execute;
 
@@ -11,6 +11,6 @@ public class TestCommandHandler : ICommandHandler<string, string>
         _execute = execute;
     }
 
-    public Task<string> ExecuteAsync(string command)
-        => Task.FromResult(_execute(command));
+    public Task<string> ExecuteAsync(TestCommand command)
+        => Task.FromResult(_execute(command.Text));
 }

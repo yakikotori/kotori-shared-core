@@ -34,7 +34,7 @@ public class ServicesUseCaseBusTests
     {
         var services = new ServiceCollection();
         
-        services.AddScoped<ICommandHandler<string, string>>(_ => new TestCommandHandler(input => input.Trim()));
+        services.AddScoped<ICommandHandler<TestCommand, string>>(_ => new TestCommandHandler(input => input.Trim()));
 
         services.AddScoped<IUseCaseBus, ServicesUseCaseBus>();
 
@@ -42,7 +42,7 @@ public class ServicesUseCaseBusTests
 
         var bus = serviceProvider.GetRequiredService<IUseCaseBus>();
 
-        var response = await bus.ExecuteCommandAsync<string, string>(" meow ");
+        var response = await bus.ExecuteCommandAsync<TestCommand, string>(new TestCommand(" meow "));
 
         response.Should().Be("meow");
     }

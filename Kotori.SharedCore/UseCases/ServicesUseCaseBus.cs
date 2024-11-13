@@ -21,7 +21,7 @@ public class ServicesUseCaseBus : IUseCaseBus
         return queryService.ExecuteAsync(query);
     }
 
-    public Task<TResult> ExecuteCommandAsync<TCommand, TResult>(TCommand command)
+    public Task<TResult> ExecuteCommandAsync<TCommand, TResult>(TCommand command) where TCommand : ICommand
     {
         if (_serviceProvider.GetService(typeof(ICommandHandler<TCommand, TResult>)) is not ICommandHandler<TCommand, TResult> commandService)
         {
