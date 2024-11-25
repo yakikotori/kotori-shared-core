@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Kotori.SharedCore.Tests.DomainEvents;
 
-public class ServicesDomainEventDispatcherTests
+public class ServiceProviderDomainEventDispatcherTests
 {
     [Fact]
     public async Task DispatchesEvents()
@@ -18,7 +18,7 @@ public class ServicesDomainEventDispatcherTests
         
         handlers.ForEach(handler => services.AddScoped<IDomainEventHandler<TestDomainEvent>>(_ => handler));
 
-        services.AddScoped<IDomainEventDispatcher, ServicesDomainEventDispatcher>();
+        services.AddScoped<IDomainEventDispatcher, ServiceProviderDomainEventDispatcher>();
         
         var serviceProvider = services.BuildServiceProvider();
         

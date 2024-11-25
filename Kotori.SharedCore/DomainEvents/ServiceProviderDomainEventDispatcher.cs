@@ -2,11 +2,11 @@ using System.Collections;
 
 namespace Kotori.SharedCore.DomainEvents;
 
-public class ServicesDomainEventDispatcher : IDomainEventDispatcher
+public class ServiceProviderDomainEventDispatcher : IDomainEventDispatcher
 {
     private readonly IServiceProvider _serviceProvider;
 
-    public ServicesDomainEventDispatcher(IServiceProvider serviceProvider)
+    public ServiceProviderDomainEventDispatcher(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
     }

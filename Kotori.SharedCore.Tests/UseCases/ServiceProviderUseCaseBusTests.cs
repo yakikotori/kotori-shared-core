@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Kotori.SharedCore.Tests.UseCases;
 
-public class ServicesUseCaseBusTests
+public class ServiceProviderUseCaseBusTests
 {
     [Fact]
     public async Task LocatesQueries()
@@ -18,7 +18,7 @@ public class ServicesUseCaseBusTests
         
         services.AddScoped<IQueryHandler<TestQuery, string>>(_ => new TestQueryHandler(data));
 
-        services.AddScoped<IUseCaseBus, ServicesUseCaseBus>();
+        services.AddScoped<IUseCaseBus, ServiceProviderUseCaseBus>();
 
         var serviceProvider = services.BuildServiceProvider();
 
@@ -36,7 +36,7 @@ public class ServicesUseCaseBusTests
         
         services.AddScoped<ICommandHandler<TestCommand, string>>(_ => new TestCommandHandler(input => input.Trim()));
 
-        services.AddScoped<IUseCaseBus, ServicesUseCaseBus>();
+        services.AddScoped<IUseCaseBus, ServiceProviderUseCaseBus>();
 
         var serviceProvider = services.BuildServiceProvider();
 

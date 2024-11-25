@@ -2,11 +2,11 @@ using Kotori.SharedCore.UseCases.Exceptions;
 
 namespace Kotori.SharedCore.UseCases;
 
-public class ServicesUseCaseBus : IUseCaseBus
+public class ServiceProviderUseCaseBus : IUseCaseBus
 {
     private readonly IServiceProvider _serviceProvider;
 
-    public ServicesUseCaseBus(IServiceProvider serviceProvider)
+    public ServiceProviderUseCaseBus(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
     }
