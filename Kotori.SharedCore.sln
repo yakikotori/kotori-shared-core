@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kotori.SharedCore", "Kotori
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kotori.SharedCore.Tests", "Kotori.SharedCore.Tests\Kotori.SharedCore.Tests.csproj", "{0F2EAA2B-532B-4DB7-857D-F6AD838B5220}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kotori.SharedCore.Endpoints", "Kotori.SharedCore.Endpoints\Kotori.SharedCore.Endpoints.csproj", "{83DBE788-4A62-4C78-BEF6-F026A2EC9748}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{3830F64F-CF5F-4B21-9AF0-77E5913D2DE8} = {B3713AF4-A325-4F7B-874A-6CB8A7D4B635}
 		{0F2EAA2B-532B-4DB7-857D-F6AD838B5220} = {B3713AF4-A325-4F7B-874A-6CB8A7D4B635}
+		{83DBE788-4A62-4C78-BEF6-F026A2EC9748} = {B3713AF4-A325-4F7B-874A-6CB8A7D4B635}
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{3830F64F-CF5F-4B21-9AF0-77E5913D2DE8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -24,5 +27,9 @@ Global
 		{0F2EAA2B-532B-4DB7-857D-F6AD838B5220}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0F2EAA2B-532B-4DB7-857D-F6AD838B5220}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0F2EAA2B-532B-4DB7-857D-F6AD838B5220}.Release|Any CPU.Build.0 = Release|Any CPU
+		{83DBE788-4A62-4C78-BEF6-F026A2EC9748}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{83DBE788-4A62-4C78-BEF6-F026A2EC9748}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{83DBE788-4A62-4C78-BEF6-F026A2EC9748}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{83DBE788-4A62-4C78-BEF6-F026A2EC9748}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
