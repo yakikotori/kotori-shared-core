@@ -2,6 +2,8 @@ namespace Kotori.SharedCore;
 
 public abstract record Result<TError> where TError : Error
 {
+    public bool IsOk => this is Ok<TError>;
+    
     public static Ok<TError> Ok()
         => new();
         
@@ -15,6 +17,8 @@ public record Fail<TError>(TError Error) : Result<TError> where TError : Error;
 
 public abstract record Result<TData, TError> where TError : Error
 {
+    public bool IsOk => this is Ok<TData, TError>;
+    
     public static Ok<TData, TError> Ok(TData data)
         => new(data);
     
