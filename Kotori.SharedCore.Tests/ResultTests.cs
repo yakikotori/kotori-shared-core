@@ -2,9 +2,9 @@ namespace Kotori.SharedCore.Tests;
 
 public class ResultTests
 {
-    private Result<TextError> DoSomething()
+    private Result<string, TextError> DoSomething()
     {
-        return Result<TextError>.Fail("Cats are too hungry to work");
+        return new TextError("Cats are too hungry to work");
     }
     
     [Fact]
