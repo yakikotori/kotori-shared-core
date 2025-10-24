@@ -25,7 +25,7 @@ public abstract record Result<TData, TError> where TError : Error
     public bool IsFail => this is Fail<TData, TError>;
     
     public TData Unwrap()
-        => this is Ok<TData, Error> ok
+        => this is Ok<TData, TError> ok
             ? ok.Data 
             : throw new InvalidOperationException($"Unwrapped Fail: {(this as Fail<TData, TError>)?.Error}");
 
