@@ -11,5 +11,7 @@ public class ResultTests
     public void ItWorks()
     {
         var result = DoSomething();
+
+        var data = result.Unwrap();
     }
 }

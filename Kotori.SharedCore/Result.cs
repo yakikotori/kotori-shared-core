@@ -3,6 +3,7 @@ namespace Kotori.SharedCore;
 public abstract record Result<TError> where TError : Error
 {
     public bool IsOk => this is Ok<TError>;
+    public bool IsFail => this is Fail<TError>;
     
     public static Ok<TError> Ok()
         => new();
@@ -20,6 +21,14 @@ public record Fail<TError>(TError Error) : Result<TError> where TError : Error;
 
 public abstract record Result<TData, TError> where TError : Error
 {
+    public bool IsOk => this is Ok<TData, TError>;
+    public bool IsFail => this is Fail<TData, TError>;
+    
+    public TData Unwrap()
+        => this is Ok<TData, Error> ok
+            ? ok.Data 
+            : throw new InvalidOperationException($"Unwrapped Fail: {(this as Fail<TData, TError>)?.Error}");
+
     public static Ok<TData, TError> Ok(TData data)
         => new(data);
     
