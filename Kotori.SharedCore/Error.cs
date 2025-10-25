@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace Kotori.SharedCore;
 
 public abstract record Error;
@@ -15,4 +17,13 @@ public record TextError(string Message) : Error
 
     public override string ToString()
         => Message;
+}
+
+public record HttpError(HttpStatusCode StatusCode) : Error
+{
+    public static implicit operator HttpError(HttpStatusCode statusCode)
+        => new(statusCode);
+
+    public override string ToString()
+        => $"{StatusCode}";
 }
