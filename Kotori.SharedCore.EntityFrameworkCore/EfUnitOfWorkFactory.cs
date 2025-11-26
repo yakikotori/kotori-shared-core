@@ -1,22 +1,30 @@
+using Kotori.SharedCore.DomainEvents;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Kotori.SharedCore.EntityFrameworkCore;
 
 public class EfUnitOfWorkFactory<TContext> : IUnitOfWorkFactory where TContext : DbContext
 {
     private readonly IDbContextFactory<TContext> _dbContextFactory;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IDomainEventDispatcher _domainEventDispatcher;
 
-    public EfUnitOfWorkFactory(IDbContextFactory<TContext> dbContextFactory, IServiceProvider serviceProvider)
+    public EfUnitOfWorkFactory(
+        IDbContextFactory<TContext> dbContextFactory, 
+        IServiceScopeFactory serviceScopeFactory,
+        IDomainEventDispatcher domainEventDispatcher)
     {
         _dbContextFactory = dbContextFactory;
-        _serviceProvider = serviceProvider;
+        _serviceScopeFactory = serviceScopeFactory;
+        _domainEventDispatcher = domainEventDispatcher;
     }
 
     public async Task<IUnitOfWork> CreateAsync()
     {
-        var db = await _dbContextFactory.CreateDbContextAsync();
+        var context = await _dbContextFactory.CreateDbContextAsync();
+        var serviceScope = _serviceScopeFactory.CreateScope();
         
-        return new EfUnitOfWork<TContext>(db, _serviceProvider);
+        return new EfUnitOfWork<TContext>(context, serviceScope, _domainEventDispatcher);
     }
 }
