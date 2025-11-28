@@ -32,15 +32,25 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
 
     public async Task SaveChangesAsync(CancellationToken ct = default)
     {
-        var domainEvents = _context.ChangeTracker
-            .Entries<EntityBase>()
-            .Select(entry => entry.Entity.RegisteredDomainEvents)
-            .OfType<IReadOnlyCollection<IDomainEvent>>()
-            .SelectMany(events => events);
-        
-        await _domainEventDispatcher.DispatchManyAsync(domainEvents, this);
-        
         await _context.SaveChangesAsync(ct);
+
+        var entities = _context.ChangeTracker
+            .Entries<EntityBase>()
+            .Select(entry => entry.Entity)
+            .ToList();
+        
+        var domainEvents = entities
+            .Select(entry => entry.RegisteredDomainEvents)
+            .OfType<IReadOnlyCollection<IDomainEvent>>()
+            .SelectMany(events => events)
+            .ToList();
+        
+        await _domainEventDispatcher.DispatchManyAsync(domainEvents);
+        
+        foreach (var entity in entities)
+        {
+            entity.ClearDomainEvents();
+        }
     }
     
     public async ValueTask DisposeAsync()
