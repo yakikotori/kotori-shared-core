@@ -24,7 +24,7 @@ public class ServiceProviderDomainEventDispatcher : IDomainEventDispatcher
             
             var handlerMethod = handlerType.GetMethod(handleMethodName)!;
             
-            await (Task)handlerMethod.Invoke(handlerService, [domainEvent])!;
+            await (Task)handlerMethod.Invoke(handlerService, [domainEvent, context])!;
         }
     }
 }
