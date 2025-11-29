@@ -10,10 +10,7 @@ public class EfUnitOfWorkFactory<TContext> : IUnitOfWorkFactory where TContext :
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IDomainEventDispatcher _domainEventDispatcher;
 
-    public EfUnitOfWorkFactory(
-        IDbContextFactory<TContext> dbContextFactory, 
-        IServiceScopeFactory serviceScopeFactory,
-        IDomainEventDispatcher domainEventDispatcher)
+    public EfUnitOfWorkFactory(IDbContextFactory<TContext> dbContextFactory, IServiceScopeFactory serviceScopeFactory, IDomainEventDispatcher domainEventDispatcher)
     {
         _dbContextFactory = dbContextFactory;
         _serviceScopeFactory = serviceScopeFactory;
@@ -23,6 +20,7 @@ public class EfUnitOfWorkFactory<TContext> : IUnitOfWorkFactory where TContext :
     public async Task<IUnitOfWork> CreateAsync()
     {
         var context = await _dbContextFactory.CreateDbContextAsync();
+        
         var serviceScope = _serviceScopeFactory.CreateScope();
         
         return new EfUnitOfWork<TContext>(context, serviceScope, _domainEventDispatcher);

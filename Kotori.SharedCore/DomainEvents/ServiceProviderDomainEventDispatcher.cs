@@ -11,7 +11,7 @@ public class ServiceProviderDomainEventDispatcher : IDomainEventDispatcher
         _serviceProvider = serviceProvider;
     }
 
-    public async Task DispatchAsync(IDomainEvent domainEvent)
+    public async Task DispatchAsync(IDomainEvent domainEvent, DomainEventContext context)
     {
         var handlerType = typeof(IDomainEventHandler<>).MakeGenericType(domainEvent.GetType());
         var handlerEnumerableType = typeof(IEnumerable<>).MakeGenericType(handlerType);
@@ -27,7 +27,4 @@ public class ServiceProviderDomainEventDispatcher : IDomainEventDispatcher
             await (Task)handlerMethod.Invoke(handlerService, [domainEvent])!;
         }
     }
-
-    public async Task DispatchManyAsync(IEnumerable<IDomainEvent> domainEvents)
-        => await Task.WhenAll(domainEvents.Select(DispatchAsync));
 }

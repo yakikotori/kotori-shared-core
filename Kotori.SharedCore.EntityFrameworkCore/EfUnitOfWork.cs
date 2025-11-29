@@ -13,7 +13,10 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
     
     private readonly ConcurrentDictionary<Type, IRepository> _repositories = new();
 
-    public EfUnitOfWork(TContext context, IServiceScope serviceScope, IDomainEventDispatcher domainEventDispatcher)
+    public EfUnitOfWork(
+        TContext context,
+        IServiceScope serviceScope,
+        IDomainEventDispatcher domainEventDispatcher)
     {
         _context = context;
         _serviceScope = serviceScope;
@@ -32,8 +35,6 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
 
     public async Task SaveChangesAsync(CancellationToken ct = default)
     {
-        await _context.SaveChangesAsync(ct);
-
         var entities = _context.ChangeTracker
             .Entries<EntityBase>()
             .Select(entry => entry.Entity)
@@ -44,8 +45,19 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
             .OfType<IReadOnlyCollection<IDomainEvent>>()
             .SelectMany(events => events)
             .ToList();
+
+        var domainEventContext = new DomainEventContext
+        {
+            UnitOfWork = this,
+            CancellationToken = ct
+        };
         
-        await _domainEventDispatcher.DispatchManyAsync(domainEvents);
+        foreach (var domainEvent in domainEvents)
+        {
+            await _domainEventDispatcher.DispatchAsync(domainEvent, domainEventContext);
+        }
+        
+        await _context.SaveChangesAsync(ct);
         
         foreach (var entity in entities)
         {
