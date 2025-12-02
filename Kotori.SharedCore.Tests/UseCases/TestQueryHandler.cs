@@ -11,6 +11,6 @@ public class TestQueryHandler : IQueryHandler<TestQuery, string>
         _data = data;
     }
 
-    public Task<string> ExecuteAsync(TestQuery query)
+    public Task<string> ExecuteAsync(TestQuery query, CancellationToken ct = default)
         => Task.FromResult(_data[query.Text]);
 }

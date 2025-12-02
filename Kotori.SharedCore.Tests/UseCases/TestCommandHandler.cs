@@ -11,6 +11,6 @@ public class TestCommandHandler : ICommandHandler<TestCommand, string>
         _execute = execute;
     }
 
-    public Task<string> ExecuteAsync(TestCommand command)
+    public Task<string> ExecuteAsync(TestCommand command, CancellationToken ct = default)
         => Task.FromResult(_execute(command.Text));
 }
