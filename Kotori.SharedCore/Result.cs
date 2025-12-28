@@ -4,7 +4,7 @@ public abstract record Result<TError> where TError : Error
 {
     public bool IsOk => this is Ok<TError>;
     public bool IsFail => this is Fail<TError>;
-    
+
     public static Ok<TError> Ok()
         => new();
         
