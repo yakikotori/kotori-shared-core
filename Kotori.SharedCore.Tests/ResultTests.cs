@@ -34,7 +34,7 @@ public class ResultTests
     [Fact]
     public void ResultWithData_CorrectBools_WhenOk()
     {
-        var result = Result<string, TextError>.Ok("Data");
+        var result = Result<string, TextError>.Ok("Cats");
 
         result.IsOk.Should().BeTrue();
         result.IsFail.Should().BeFalse();
@@ -72,11 +72,11 @@ public class ResultTests
     [Fact]
     public void ResultWithData_ImplicitConversion_FromDataToOk()
     {
-        Result<string, TextError> result = "Implicit data";
+        Result<string, TextError> result = "Implicit cats";
 
         result.IsOk.Should().BeTrue();
         result.IsFail.Should().BeFalse();
-        result.Unwrap().Should().Be("Implicit data");
+        result.Unwrap().Should().Be("Implicit cats");
     }
 
     [Fact]

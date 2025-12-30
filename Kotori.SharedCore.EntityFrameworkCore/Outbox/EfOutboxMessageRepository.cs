@@ -1,3 +1,4 @@
+using Kotori.SharedCore.IntegrationEvents;
 using Kotori.SharedCore.Outbox;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,11 +8,25 @@ public class EfOutboxMessageRepository : IOutboxMessageRepository
 {
     private readonly DbContext _context;
     private readonly TimeProvider _timeProvider;
+    private readonly IEventSerializer _eventSerializer;
 
-    public EfOutboxMessageRepository(DbContext context, TimeProvider timeProvider)
+    public EfOutboxMessageRepository(DbContext context, TimeProvider timeProvider, IEventSerializer eventSerializer)
     {
         _context = context;
         _timeProvider = timeProvider;
+        _eventSerializer = eventSerializer;
+    }
+
+    public void Add(IIntegrationEvent integrationEvent, DateTime occurredOnUtc)
+    {
+        var payload = _eventSerializer.Serialize(integrationEvent);
+
+        var outboxMessageEntity = OutboxMessageEntity.Create(
+            integrationEvent.GetType().AssemblyQualifiedName!,
+            payload,
+            occurredOnUtc);
+        
+        _context.Set<OutboxMessageEntity>().Add(outboxMessageEntity);
     }
 
     public async Task<List<IOutboxMessage>> GetPendingAsync(int limit)
