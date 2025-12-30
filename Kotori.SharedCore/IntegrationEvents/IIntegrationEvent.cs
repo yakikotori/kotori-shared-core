@@ -1,3 +1,6 @@
 namespace Kotori.SharedCore.IntegrationEvents;
 
-public interface IIntegrationEvent;
+public interface IIntegrationEvent
+{
+    Guid Id { get; }
+}

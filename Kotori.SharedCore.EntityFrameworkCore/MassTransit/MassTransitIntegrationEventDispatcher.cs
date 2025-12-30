@@ -14,6 +14,18 @@ public class MassTransitIntegrationEventDispatcher : IIntegrationEventDispatcher
 
     public async Task DispatchAsync(IIntegrationEvent integrationEvent, CancellationToken cancellationToken = default)
     {
-        await _bus.Publish(integrationEvent, integrationEvent.GetType(), cancellationToken);
+        await _bus.Publish(
+            integrationEvent,
+            integrationEvent.GetType(),
+            context =>
+            {
+                context.MessageId = integrationEvent.Id;
+
+                if (integrationEvent is ICorrelatedEvent correlatedEvent)
+                {
+                    context.CorrelationId = correlatedEvent.CorrelationId;
+                }
+            },
+            cancellationToken);
     }
 }
