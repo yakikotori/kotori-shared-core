@@ -1,5 +1,0 @@
-using Kotori.SharedCore.UseCases;
-
-namespace Kotori.SharedCore.Tests.UseCases;
-
-public readonly record struct TestQuery(string Text) : IQuery;

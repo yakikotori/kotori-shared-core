@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Kotori.SharedCore.IntegrationEvents;
+using Kotori.SharedCore.Outbox;
 
 namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 

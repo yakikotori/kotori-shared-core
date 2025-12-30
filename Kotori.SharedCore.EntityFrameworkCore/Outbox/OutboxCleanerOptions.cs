@@ -1,7 +1,9 @@
 namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 
-public class OutboxCleanerOptions
+public record OutboxCleanerOptions
 {
-    public TimeSpan ClearProcessedAfter { get; set; }
-    public TimeSpan ClearFailedAfter { get; set; }
+    public const string SectionName = "OutboxCleaner";
+    
+    public required TimeSpan ClearProcessedAfter { get; init; }
+    public required TimeSpan ClearFailedAfter { get; init; }
 }

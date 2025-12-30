@@ -1,4 +1,4 @@
-using Kotori.SharedCore.DomainEvents;
+using Kotori.SharedCore.IntegrationEvents;
 using Kotori.SharedCore.Outbox;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,77 +8,75 @@ namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 public class OutboxProcessor : IOutboxProcessor
 {
     private readonly ILogger<OutboxProcessor> _logger;
+    private readonly IOptions<OutboxProcessorOptions> _options;
     private readonly IUnitOfWorkFactory _uowFactory;
     private readonly IEventSerializer _eventSerializer;
-    private readonly IDomainEventDispatcher _domainEventDispatcher;
+    private readonly IIntegrationEventDispatcher _integrationEventDispatcher;
     private readonly TimeProvider _timeProvider;
-    private readonly IOptions<OutboxProcessorOptions> _options;
 
     public OutboxProcessor(
-        ILogger<OutboxProcessor> logger,
-        IUnitOfWorkFactory uowFactory, 
-        IEventSerializer eventSerializer, 
-        IDomainEventDispatcher domainEventDispatcher,
-        TimeProvider timeProvider,
-        IOptions<OutboxProcessorOptions> options)
+        ILogger<OutboxProcessor> logger, 
+        IOptions<OutboxProcessorOptions> options,
+        IUnitOfWorkFactory uowFactory,
+        IEventSerializer eventSerializer,
+        IIntegrationEventDispatcher integrationEventDispatcher,
+        TimeProvider timeProvider)
     {
         _logger = logger;
+        _options = options;
         _uowFactory = uowFactory;
         _eventSerializer = eventSerializer;
-        _domainEventDispatcher = domainEventDispatcher;
+        _integrationEventDispatcher = integrationEventDispatcher;
         _timeProvider = timeProvider;
-        _options = options;
     }
 
     public async Task ProcessAsync()
     {
         await using var uow = await _uowFactory.CreateAsync();
         
-        var domainOutboxMessageRepository = uow.GetRepository<IOutboxMessageRepository>();
+        var outboxMessageRepository = uow.GetRepository<IOutboxMessageRepository>();
 
-        var domainOutboxMessages = await domainOutboxMessageRepository.GetPendingAsync(_options.Value.BatchSize);
+        var outboxMessages = await outboxMessageRepository.GetPendingAsync(_options.Value.BatchSize);
         
-        foreach (var domainOutboxMessage in domainOutboxMessages)
+        foreach (var outboxMessage in outboxMessages)
         {
-            /*
-            var eventType = Type.GetType(domainOutboxMessage.Type);
+            var eventType = Type.GetType(outboxMessage.Type);
 
             if (eventType is null)
             {
                 _logger.LogWarning(
                     "Failed to process outbox message Error: {ErrorMessage}", 
-                    $"Event type {domainOutboxMessage.Type} not found");
-                domainOutboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, "Event type not found");
+                    $"Event type {outboxMessage.Type} not found");
+                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, "Event type not found");
                 continue;
             }
             
-            var deserializeDomainEventResult = _eventSerializer.Deserialize(
+            var deserializeEventResult = _eventSerializer.Deserialize(
                 eventType,
-                domainOutboxMessage.Payload);
+                outboxMessage.Payload);
 
-            if (deserializeDomainEventResult is Fail<IDomainEvent, TextError> deserializeDomainEventFail)
+            if (deserializeEventResult is Fail<IIntegrationEvent, TextError> deserializeEventFail)
             {
                 _logger.LogWarning(
                     "Failed to process outbox message Error: {ErrorMessage}", 
-                    deserializeDomainEventFail.Error.Message);
-                domainOutboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, deserializeDomainEventFail.Error.Message);
+                    deserializeEventFail.Error.Message);
+                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, deserializeEventFail.Error.Message);
                 continue;
             }
 
-            var domainEvent = deserializeDomainEventResult.Unwrap();
+            var deserializedEvent = deserializeEventResult.Unwrap();
 
             try
             {
-                await _domainEventDispatcher.DispatchAsync(domainEvent);
+                await _integrationEventDispatcher.DispatchAsync(deserializedEvent);
 
-                domainOutboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().DateTime);
+                outboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().DateTime);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                _logger.LogError(e, "Exception while dispatching domain event");
-                domainOutboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, e.Message);
+                _logger.LogError(ex, "Exception while dispatching domain event");
+                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, ex.Message);
             }
-            */
         }
 
         await uow.SaveChangesAsync();

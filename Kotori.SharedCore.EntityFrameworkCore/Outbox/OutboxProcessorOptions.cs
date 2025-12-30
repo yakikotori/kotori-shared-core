@@ -1,6 +1,8 @@
 namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 
-public class OutboxProcessorOptions
+public record OutboxProcessorOptions
 {
-    public int BatchSize { get; set; }
+    public const string SectionName = "OutboxProcessor";
+    
+    public required int BatchSize { get; init; }
 }

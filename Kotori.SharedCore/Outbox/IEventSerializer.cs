@@ -1,6 +1,6 @@
 using Kotori.SharedCore.IntegrationEvents;
 
-namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
+namespace Kotori.SharedCore.Outbox;
 
 public interface IEventSerializer
 {

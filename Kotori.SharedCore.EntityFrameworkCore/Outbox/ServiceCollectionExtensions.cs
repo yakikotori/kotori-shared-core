@@ -6,16 +6,16 @@ namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 
 public static class ServiceCollectionExtensions
 {
-    public static void AddEfDomainOutbox(this IServiceCollection services, IConfiguration configuration)
+    public static void AddOutbox(this IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<OutboxProcessorOptions>(configuration.GetSection("OutboxProcessor"));
-        services.Configure<OutboxCleanerOptions>(configuration.GetSection("OutboxCleaner"));
-
         services.AddSingleton<IRepositoryFactory<IOutboxMessageRepository>, EfRepositoryFactory<EfOutboxMessageRepository>>();
         
-        services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
-        services.AddSingleton<IOutboxCleaner, OutboxCleaner>();
-        
         services.AddSingleton<IEventSerializer, JsonEventSerializer>();
+        
+        services.Configure<OutboxProcessorOptions>(configuration.GetSection(OutboxProcessorOptions.SectionName));
+        services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
+        
+        services.Configure<OutboxCleanerOptions>(configuration.GetSection(OutboxCleanerOptions.SectionName));
+        services.AddSingleton<IOutboxCleaner, OutboxCleaner>();
     }
 }
