@@ -6,5 +6,5 @@ public interface IEventSerializer
 {
     string Serialize(IIntegrationEvent integrationEvent);
     
-    Result<IIntegrationEvent, TextError> Deserialize(Type type, string serializedEvent);
+    Result<IIntegrationEvent, TextError> Deserialize(string type, string serializedEvent);
 }

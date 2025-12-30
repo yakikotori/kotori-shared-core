@@ -11,13 +11,31 @@ public class JsonEventSerializer : IEventSerializer
         return JsonSerializer.Serialize(integrationEvent, integrationEvent.GetType());
     }
 
-    public Result<IIntegrationEvent, TextError> Deserialize(Type type, string serializedEvent)
+    public Result<IIntegrationEvent, TextError> Deserialize(string type, string serializedEvent)
     {
-        if (JsonSerializer.Deserialize(serializedEvent, type) is not IIntegrationEvent domainEvent)
+        var eventType = Type.GetType(type);
+
+        if (eventType is null)
+        {
+            return new TextError("Event type not found");
+        }
+
+        IIntegrationEvent? integrationEvent;
+
+        try
+        {
+            integrationEvent = JsonSerializer.Deserialize(serializedEvent, eventType) as IIntegrationEvent;
+        }
+        catch (JsonException)
         {
             return new TextError("Failed to deserialize event");
         }
 
-        return new Ok<IIntegrationEvent, TextError>(domainEvent);
+        if (integrationEvent is null)
+        {
+            return new TextError("Failed to deserialize event");
+        }
+
+        return new Ok<IIntegrationEvent, TextError>(integrationEvent);
     }
 }

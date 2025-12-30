@@ -42,19 +42,8 @@ public class OutboxProcessor : IOutboxProcessor
         
         foreach (var outboxMessage in outboxMessages)
         {
-            var eventType = Type.GetType(outboxMessage.Type);
-
-            if (eventType is null)
-            {
-                _logger.LogWarning(
-                    "Failed to process outbox message Error: {ErrorMessage}", 
-                    $"Event type {outboxMessage.Type} not found");
-                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, "Event type not found");
-                continue;
-            }
-            
             var deserializeEventResult = _eventSerializer.Deserialize(
-                eventType,
+                outboxMessage.Type,
                 outboxMessage.Payload);
 
             if (deserializeEventResult is Fail<IIntegrationEvent, TextError> deserializeEventFail)
@@ -77,7 +66,7 @@ public class OutboxProcessor : IOutboxProcessor
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception while dispatching domain event");
-                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, ex.Message);
+                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().UtcDateTime, ex.Message);
             }
         }
 
