@@ -62,7 +62,7 @@ public class OutboxProcessor : IOutboxProcessor
                 _logger.LogWarning(
                     "Failed to process outbox message Error: {ErrorMessage}", 
                     deserializeEventFail.Error.Message);
-                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().DateTime, deserializeEventFail.Error.Message);
+                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().UtcDateTime, deserializeEventFail.Error.Message);
                 continue;
             }
 
@@ -72,7 +72,7 @@ public class OutboxProcessor : IOutboxProcessor
             {
                 await _integrationEventDispatcher.DispatchAsync(deserializedEvent, cancellationToken);
 
-                outboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().DateTime);
+                outboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().UtcDateTime);
             }
             catch (Exception ex)
             {
