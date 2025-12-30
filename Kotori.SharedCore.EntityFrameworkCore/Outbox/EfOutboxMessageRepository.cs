@@ -47,7 +47,7 @@ public class EfOutboxMessageRepository : IOutboxMessageRepository
 
     public async Task<int> RemoveProcessedAsync(TimeSpan timePassed)
     {
-        var threshold = _timeProvider.GetUtcNow().DateTime - timePassed;
+        var threshold = _timeProvider.GetUtcNow().UtcDateTime - timePassed;
 
         return await _context.Set<OutboxMessageEntity>()
             .Where(message => 
@@ -58,7 +58,7 @@ public class EfOutboxMessageRepository : IOutboxMessageRepository
 
     public async Task<int> RemoveFailedAsync(TimeSpan timePassed)
     {
-        var threshold = _timeProvider.GetUtcNow().DateTime - timePassed;
+        var threshold = _timeProvider.GetUtcNow().UtcDateTime - timePassed;
 
         return await _context.Set<OutboxMessageEntity>()
             .Where(message => 
