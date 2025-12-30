@@ -5,15 +5,15 @@ namespace Kotori.SharedCore.EntityFrameworkCore.MassTransit;
 
 public class MassTransitIntegrationEventDispatcher : IIntegrationEventDispatcher
 {
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IBus _bus;
 
-    public MassTransitIntegrationEventDispatcher(IPublishEndpoint publishEndpoint)
+    public MassTransitIntegrationEventDispatcher(IBus bus)
     {
-        _publishEndpoint = publishEndpoint;
+        _bus = bus;
     }
 
     public async Task DispatchAsync(IIntegrationEvent integrationEvent, CancellationToken cancellationToken = default)
     {
-        await _publishEndpoint.Publish(integrationEvent, integrationEvent.GetType(), cancellationToken);
+        await _bus.Publish(integrationEvent, integrationEvent.GetType(), cancellationToken);
     }
 }
