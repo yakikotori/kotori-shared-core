@@ -33,7 +33,12 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
         });
     }
 
-    public async Task SaveChangesAsync(CancellationToken ct = default)
+    public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
+    { 
+        await _context.Database.BeginTransactionAsync(cancellationToken);
+    }
+
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         var entities = _context.ChangeTracker
             .Entries<EntityBase>()
@@ -49,7 +54,7 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
         var domainEventContext = new DomainEventContext
         {
             UnitOfWork = this,
-            CancellationToken = ct
+            CancellationToken = cancellationToken
         };
         
         foreach (var domainEvent in domainEvents)
@@ -57,7 +62,12 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
             await _domainEventDispatcher.DispatchAsync(domainEvent, domainEventContext);
         }
         
-        await _context.SaveChangesAsync(ct);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        if (_context.Database.CurrentTransaction is not null)
+        {
+            await _context.Database.CommitTransactionAsync(cancellationToken);
+        }
         
         foreach (var entity in entities)
         {
@@ -68,7 +78,14 @@ public class EfUnitOfWork<TContext> : IUnitOfWork where TContext : DbContext
     public async ValueTask DisposeAsync()
     {
         _repositories.Clear();
+        
         _serviceScope.Dispose();
+        
+        if (_context.Database.CurrentTransaction is not null)
+        {
+            await _context.Database.RollbackTransactionAsync();
+        }
+        
         await _context.DisposeAsync();
     }
 }

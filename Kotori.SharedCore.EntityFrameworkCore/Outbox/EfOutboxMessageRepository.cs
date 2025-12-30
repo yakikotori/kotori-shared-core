@@ -17,8 +17,14 @@ public class EfOutboxMessageRepository : IOutboxMessageRepository
     public async Task<List<IOutboxMessage>> GetPendingAsync(int limit)
     {
         var messageEntities = await _context.Set<OutboxMessageEntity>()
-            .Where(message => message.State == OutboxMessageState.Pending)
-            .Take(limit)
+            .FromSql(
+                $"""
+                SELECT * FROM outbox_messages
+                WHERE "State" = {(int)OutboxMessageState.Pending}
+                ORDER BY "OccurredOnUtc"
+                LIMIT {limit}
+                FOR UPDATE SKIP LOCKED
+                """)
             .ToListAsync();
 
         return messageEntities.Cast<IOutboxMessage>().ToList();
@@ -26,31 +32,23 @@ public class EfOutboxMessageRepository : IOutboxMessageRepository
 
     public async Task<int> RemoveProcessedAsync(TimeSpan timePassed)
     {
-        var now = _timeProvider.GetUtcNow().DateTime;
+        var threshold = _timeProvider.GetUtcNow().DateTime - timePassed;
 
-        var messageEntities = await _context.Set<OutboxMessageEntity>()
-            .Where(message =>
-                message.State == OutboxMessageState.Processed &&
-                now - message.ProcessedOnUtc > timePassed)
-            .ToListAsync();
-        
-        _context.Set<OutboxMessageEntity>().RemoveRange(messageEntities);
-
-        return messageEntities.Count;
+        return await _context.Set<OutboxMessageEntity>()
+            .Where(message => 
+                message.State == OutboxMessageState.Processed && 
+                message.ProcessedOnUtc < threshold)
+            .ExecuteDeleteAsync();
     }
 
     public async Task<int> RemoveFailedAsync(TimeSpan timePassed)
     {
-        var now = _timeProvider.GetUtcNow().DateTime;
+        var threshold = _timeProvider.GetUtcNow().DateTime - timePassed;
 
-        var messageEntities = await _context.Set<OutboxMessageEntity>()
-            .Where(message =>
-                message.State == OutboxMessageState.Failed &&
-                now - message.ProcessedOnUtc > timePassed)
-            .ToListAsync();
-        
-        _context.Set<OutboxMessageEntity>().RemoveRange(messageEntities);
-        
-        return messageEntities.Count;
+        return await _context.Set<OutboxMessageEntity>()
+            .Where(message => 
+                message.State == OutboxMessageState.Failed && 
+                message.ProcessedOnUtc < threshold)
+            .ExecuteDeleteAsync();
     }
 }

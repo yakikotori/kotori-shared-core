@@ -2,5 +2,5 @@ namespace Kotori.SharedCore.Outbox;
 
 public interface IOutboxProcessor
 {
-    Task ProcessAsync();
+    Task ProcessAsync(CancellationToken cancellationToken = default);
 }

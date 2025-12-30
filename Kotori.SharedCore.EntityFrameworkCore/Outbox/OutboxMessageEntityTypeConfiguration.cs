@@ -7,11 +7,15 @@ public class OutboxMessageEntityTypeConfiguration : IEntityTypeConfiguration<Out
 {
     public void Configure(EntityTypeBuilder<OutboxMessageEntity> builder)
     {
+        builder.ToTable("outbox_messages");
+        
         builder.HasKey(message => message.Id);
 
         builder.Property(message => message.Id)
             .HasConversion(id => id.Value, id => new DomainOutboxMessageEntityId(id));
 
+        builder.HasIndex(message => message.State);
+        
         builder.Property(message => message.Type)
             .HasMaxLength(200);
 
@@ -19,6 +23,6 @@ public class OutboxMessageEntityTypeConfiguration : IEntityTypeConfiguration<Out
             .HasColumnType("jsonb");
 
         builder.Property(message => message.ErrorMessage)
-            .HasMaxLength(2000);
+            .HasMaxLength(3000);
     }
 }

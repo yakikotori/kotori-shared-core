@@ -30,12 +30,14 @@ public class OutboxProcessor : IOutboxProcessor
         _timeProvider = timeProvider;
     }
 
-    public async Task ProcessAsync()
+    public async Task ProcessAsync(CancellationToken cancellationToken = default)
     {
         await using var uow = await _uowFactory.CreateAsync();
+
+        await uow.BeginTransactionAsync(cancellationToken);
         
         var outboxMessageRepository = uow.GetRepository<IOutboxMessageRepository>();
-
+        
         var outboxMessages = await outboxMessageRepository.GetPendingAsync(_options.Value.BatchSize);
         
         foreach (var outboxMessage in outboxMessages)
@@ -68,7 +70,7 @@ public class OutboxProcessor : IOutboxProcessor
 
             try
             {
-                await _integrationEventDispatcher.DispatchAsync(deserializedEvent);
+                await _integrationEventDispatcher.DispatchAsync(deserializedEvent, cancellationToken);
 
                 outboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().DateTime);
             }
@@ -79,6 +81,6 @@ public class OutboxProcessor : IOutboxProcessor
             }
         }
 
-        await uow.SaveChangesAsync();
+        await uow.SaveChangesAsync(cancellationToken);
     }
 }
