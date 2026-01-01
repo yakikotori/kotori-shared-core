@@ -15,7 +15,13 @@ public static class ServiceCollectionExtensions
         services.Configure<OutboxProcessorOptions>(configuration.GetSection(OutboxProcessorOptions.SectionName));
         services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
         
+        services.Configure<BackgroundOutboxCleanerOptions>(configuration.GetSection(BackgroundOutboxCleanerOptions.SectionName));
+        services.AddHostedService<BackgroundOutboxProcessor>();
+        
         services.Configure<OutboxCleanerOptions>(configuration.GetSection(OutboxCleanerOptions.SectionName));
         services.AddSingleton<IOutboxCleaner, OutboxCleaner>();
+        
+        services.Configure<BackgroundOutboxCleanerOptions>(configuration.GetSection(BackgroundOutboxCleanerOptions.SectionName));
+        services.AddHostedService<BackgroundOutboxCleaner>();
     }
 }
