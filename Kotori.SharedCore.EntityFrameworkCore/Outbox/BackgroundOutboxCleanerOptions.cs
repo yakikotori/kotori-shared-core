@@ -3,6 +3,6 @@ namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 public record BackgroundOutboxCleanerOptions
 {
     public const string SectionName = "BackgroundOutboxCleaner";
-    
-    public required int DelayMs { get; init; }
+
+    public required int DelayMs { get; init; } = 60 * 1000;
 }
