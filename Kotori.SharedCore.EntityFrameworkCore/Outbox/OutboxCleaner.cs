@@ -20,7 +20,7 @@ public class OutboxCleaner : IOutboxCleaner
         _uowFactory = uowFactory;
     }
 
-    public async Task ClearAsync()
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
         await using var uow = await _uowFactory.CreateAsync();
         
@@ -31,7 +31,7 @@ public class OutboxCleaner : IOutboxCleaner
         clearedCount += await outboxMessageRepository.RemoveProcessedAsync(_options.Value.ClearProcessedAfter);
         clearedCount += await outboxMessageRepository.RemoveFailedAsync(_options.Value.ClearFailedAfter);
 
-        await uow.SaveChangesAsync();
+        await uow.SaveChangesAsync(cancellationToken);
         
         _logger.LogInformation("Cleared domain outbox messages Count: {Count}", clearedCount);
     }

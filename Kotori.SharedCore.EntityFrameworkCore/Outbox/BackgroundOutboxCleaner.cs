@@ -27,7 +27,7 @@ public class BackgroundOutboxCleaner : BackgroundService
         {
             try
             {
-                await _outboxCleaner.ClearAsync();
+                await _outboxCleaner.ClearAsync(stoppingToken);
             }
             catch (Exception ex)
             {

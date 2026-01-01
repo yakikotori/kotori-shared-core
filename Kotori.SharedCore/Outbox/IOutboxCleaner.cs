@@ -2,5 +2,5 @@ namespace Kotori.SharedCore.Outbox;
 
 public interface IOutboxCleaner
 {
-    Task ClearAsync();
+    Task ClearAsync(CancellationToken cancellationToken = default);
 }
