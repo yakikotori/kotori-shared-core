@@ -113,9 +113,25 @@ builder.Services.AddEndpoints(typeof(Program).Assembly);
 app.MapEndpoints();
 ```
 
+## Domain events
+
+Domain events registered via `EntityBase.RegisterDomainEvent` are dispatched **synchronously, inside the same transaction** as the aggregate change. `EfUnitOfWork.SaveChangesAsync` collects events from tracked entities, runs every `IDomainEventHandler<T>` (resolved through DI via `ServiceProviderDomainEventDispatcher`), then calls `DbContext.SaveChangesAsync` and commits. A handler that writes to the same `DbContext` is atomic with the originating change — if any handler throws, the whole unit of work rolls back.
+
+This is the right tool for **in-process, same-database** side effects: updating a read model, adjusting another aggregate in the same bounded context, enforcing a cross-aggregate invariant.
+
+**Don't call external systems from a domain event handler.** HTTP calls, message-broker publishes, email, file I/O, and anything else outside the DB transaction are not rolled back if the commit fails, which reintroduces the dual-write problem. For those, write an `IIntegrationEvent` to the **outbox** inside the same unit of work — the `BackgroundOutboxProcessor` will dispatch it after the commit lands.
+
+| Use case | Use |
+| --- | --- |
+| Update a read model / denormalized table | Domain event handler |
+| Keep another aggregate consistent | Domain event handler |
+| Publish to a message broker | Outbox → `IIntegrationEvent` |
+| Call a third-party API | Outbox → `IIntegrationEvent` (handler on the consumer side) |
+| Send email / notification | Outbox → `IIntegrationEvent` |
+
 ## Transactional Outbox
 
-The outbox guarantees integration events are published **exactly once** relative to the database commit. An aggregate writes an `OutboxMessageEntity` inside the same transaction as its state change; a background processor picks it up and hands it to an `IIntegrationEventDispatcher` (e.g. MassTransit).
+The outbox guarantees integration events are published **at least once** relative to the database commit — no event is lost if the broker or process dies, but a crash between publish and status update can cause a redelivery, so consumers must be idempotent. An aggregate writes an `OutboxMessageEntity` inside the same transaction as its state change; a background processor picks it up and hands it to an `IIntegrationEventDispatcher` (e.g. MassTransit).
 
 ### Enable it
 
