@@ -14,6 +14,8 @@ Targets `net9.0` and `net10.0`.
 
 ## Installation
 
+The packages are only available on GitHub NuGet registry.
+
 ```bash
 dotnet add package Kotori.SharedCore
 dotnet add package Kotori.SharedCore.EntityFrameworkCore
