@@ -2,11 +2,11 @@ using Kotori.SharedCore.Outbox;
 
 namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 
-public readonly record struct DomainOutboxMessageEntityId(Guid Value);
+public readonly record struct OutboxMessageEntityId(Guid Value);
 
 public class OutboxMessageEntity : EntityBase, IOutboxMessage
 {
-    public DomainOutboxMessageEntityId Id { get; private init; }
+    public OutboxMessageEntityId Id { get; private init; }
 
     public string Type { get; private init; } = null!;
     public string Payload { get; private init; } = null!;
@@ -22,7 +22,7 @@ public class OutboxMessageEntity : EntityBase, IOutboxMessage
     public static OutboxMessageEntity Create(string type, string payload, DateTime occurredOnUtc)
         => new()
         {
-            Id = new DomainOutboxMessageEntityId(Guid.CreateVersion7()),
+            Id = new OutboxMessageEntityId(Guid.CreateVersion7()),
             Type = type,
             Payload = payload,
             OccurredOnUtc = occurredOnUtc,

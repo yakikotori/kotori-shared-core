@@ -12,7 +12,7 @@ public class OutboxMessageEntityTypeConfiguration : IEntityTypeConfiguration<Out
         builder.HasKey(message => message.Id);
 
         builder.Property(message => message.Id)
-            .HasConversion(id => id.Value, id => new DomainOutboxMessageEntityId(id));
+            .HasConversion(id => id.Value, id => new OutboxMessageEntityId(id));
 
         builder.HasIndex(message => message.State);
         
