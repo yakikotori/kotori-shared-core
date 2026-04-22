@@ -1,8 +1,8 @@
 # Kotori.SharedCore
 
-Libraries for building .NET projects that follow **Clean Architecture** and **Domain-Driven Design**.
+Personal libraries for building .NET projects that follow **Clean Architecture** and **Domain-Driven Design**.
 
-Targets `net9.0` and `net10.0`.
+Not designed to be used by others as is, but open-source to be shared if someone wants to see.
 
 ## Packages
 
