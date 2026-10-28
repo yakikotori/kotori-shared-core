@@ -157,16 +157,22 @@ builder.Services.AddSingleton<IIntegrationEventDispatcher, MassTransitIntegratio
 
 ```json
 {
-  "OutboxProcessor":           { "BatchSize": 100 },
+  "OutboxProcessor":           { "BatchSize": 100, "MaxAttempts": 10, "RetryBaseDelay": "00:00:05", "RetryMaxDelay": "00:10:00" },
   "BackgroundOutboxProcessor": { "DelayMs": 500 },
   "OutboxCleaner":             { "ClearProcessedAfter": "1.00:00:00", "ClearFailedAfter": "7.00:00:00" },
   "BackgroundOutboxCleaner":   { "DelayMs": 60000 }
 }
 ```
 
+`BatchSize`, `ClearProcessedAfter` and `ClearFailedAfter` are required. `MaxAttempts`, `RetryBaseDelay`, `RetryMaxDelay` and both `DelayMs` values fall back to the defaults shown above when unbound.
+
 ### How messages get written
 
-Inside a use case, serialize the integration event and persist it through the outbox repository in the same unit of work as the aggregate change. `BackgroundOutboxProcessor` polls `IOutboxMessageRepository.GetPendingAsync`, dispatches each message, and marks it `Processed` or `Failed`. `BackgroundOutboxCleaner` purges old rows based on `ClearProcessedAfter` / `ClearFailedAfter`.
+Inside a use case, serialize the integration event and persist it through the outbox repository in the same unit of work as the aggregate change. `BackgroundOutboxProcessor` polls `IOutboxMessageRepository.GetPendingAsync` for `Pending` messages whose `NextAttemptOnUtc` has passed, dispatches each message, and marks it `Processed`. `BackgroundOutboxCleaner` purges old rows based on `ClearProcessedAfter` / `ClearFailedAfter`.
+
+### Retries
+
+When dispatch throws, the message stays `Pending`, `Attempts` is incremented, the error is stored in `ErrorMessage`, and `NextAttemptOnUtc` is pushed out by `RetryBaseDelay * 2^(attempt - 1)`, capped at `RetryMaxDelay`. The attempt that reaches `MaxAttempts` marks the message `Failed`. A message whose payload cannot be deserialized is marked `Failed` immediately, since retrying cannot fix it.
 
 ## Patterns
 

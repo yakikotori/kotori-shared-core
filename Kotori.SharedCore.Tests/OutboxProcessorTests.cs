@@ -96,7 +96,7 @@ public class OutboxProcessorTests
     }
 
     [Fact]
-    public async Task OutboxProcessor_MarksAsFailed_WhenDispatcherThrowsException()
+    public async Task OutboxProcessor_MarksAsFailed_WhenDispatcherThrowsExceptionOnLastAttempt()
     {
         var logger = Substitute.For<ILogger<OutboxProcessor>>();
         var options = Substitute.For<IOptions<OutboxProcessorOptions>>();
@@ -105,7 +105,7 @@ public class OutboxProcessorTests
         var integrationEventDispatcher = Substitute.For<IIntegrationEventDispatcher>();
         var timeProvider = Substitute.For<TimeProvider>();
 
-        options.Value.Returns(new OutboxProcessorOptions { BatchSize = 1 });
+        options.Value.Returns(new OutboxProcessorOptions { BatchSize = 1, MaxAttempts = 1 });
 
         var uow = Substitute.For<IUnitOfWork>();
         uowFactory.CreateAsync().Returns(uow);
@@ -189,6 +189,120 @@ public class OutboxProcessorTests
 
         successMessage.State.Should().Be(OutboxMessageState.Processed);
         failDeserializeMessage.State.Should().Be(OutboxMessageState.Failed);
-        failDispatchMessage.State.Should().Be(OutboxMessageState.Failed);
+        failDispatchMessage.State.Should().Be(OutboxMessageState.Pending);
+        failDispatchMessage.Attempts.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task OutboxProcessor_SchedulesRetry_WhenDispatcherThrowsExceptionBeforeLastAttempt()
+    {
+        var logger = Substitute.For<ILogger<OutboxProcessor>>();
+        var options = Substitute.For<IOptions<OutboxProcessorOptions>>();
+        var uowFactory = Substitute.For<IUnitOfWorkFactory>();
+        var eventSerializer = Substitute.For<IEventSerializer>();
+        var integrationEventDispatcher = Substitute.For<IIntegrationEventDispatcher>();
+        var timeProvider = Substitute.For<TimeProvider>();
+
+        var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        timeProvider.GetUtcNow().Returns(now);
+
+        options.Value.Returns(new OutboxProcessorOptions
+        {
+            BatchSize = 1,
+            MaxAttempts = 3,
+            RetryBaseDelay = TimeSpan.FromSeconds(10),
+            RetryMaxDelay = TimeSpan.FromMinutes(1)
+        });
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uowFactory.CreateAsync().Returns(uow);
+        uow.BeginTransactionAsync().Returns(Task.CompletedTask);
+
+        var outboxMessageRepository = Substitute.For<IOutboxMessageRepository>();
+        uow.GetRepository<IOutboxMessageRepository>().Returns(outboxMessageRepository);
+
+        var outboxMessage = OutboxMessageEntity.Create("TestEvent", "{}", now.UtcDateTime);
+
+        outboxMessageRepository.GetPendingAsync(Arg.Any<int>()).Returns([outboxMessage]);
+
+        var mockEvent = Substitute.For<IIntegrationEvent>();
+        eventSerializer.Deserialize(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(mockEvent));
+
+        integrationEventDispatcher
+            .DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("Dispatch failed")));
+
+        var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
+            integrationEventDispatcher, timeProvider);
+
+        await outboxProcessor.ProcessAsync();
+
+        outboxMessage.State.Should().Be(OutboxMessageState.Pending);
+        outboxMessage.Attempts.Should().Be(1);
+        outboxMessage.ErrorMessage.Should().Be("Dispatch failed");
+        outboxMessage.ProcessedOnUtc.Should().BeNull();
+        outboxMessage.NextAttemptOnUtc.Should().Be(now.UtcDateTime.AddSeconds(10));
+    }
+
+    [Fact]
+    public async Task OutboxProcessor_DoublesRetryDelay_UpToMaxDelay()
+    {
+        var logger = Substitute.For<ILogger<OutboxProcessor>>();
+        var options = Substitute.For<IOptions<OutboxProcessorOptions>>();
+        var uowFactory = Substitute.For<IUnitOfWorkFactory>();
+        var eventSerializer = Substitute.For<IEventSerializer>();
+        var integrationEventDispatcher = Substitute.For<IIntegrationEventDispatcher>();
+        var timeProvider = Substitute.For<TimeProvider>();
+
+        var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        timeProvider.GetUtcNow().Returns(now);
+
+        options.Value.Returns(new OutboxProcessorOptions
+        {
+            BatchSize = 1,
+            MaxAttempts = 10,
+            RetryBaseDelay = TimeSpan.FromSeconds(10),
+            RetryMaxDelay = TimeSpan.FromMinutes(1)
+        });
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uowFactory.CreateAsync().Returns(uow);
+        uow.BeginTransactionAsync().Returns(Task.CompletedTask);
+
+        var outboxMessageRepository = Substitute.For<IOutboxMessageRepository>();
+        uow.GetRepository<IOutboxMessageRepository>().Returns(outboxMessageRepository);
+
+        var outboxMessage = OutboxMessageEntity.Create("TestEvent", "{}", now.UtcDateTime);
+
+        outboxMessageRepository.GetPendingAsync(Arg.Any<int>()).Returns([outboxMessage]);
+
+        var mockEvent = Substitute.For<IIntegrationEvent>();
+        eventSerializer.Deserialize(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(mockEvent));
+
+        integrationEventDispatcher
+            .DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("Dispatch failed")));
+
+        var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
+            integrationEventDispatcher, timeProvider);
+
+        var retryDelays = new List<TimeSpan>();
+
+        for (var i = 0; i < 5; i++)
+        {
+            await outboxProcessor.ProcessAsync();
+            retryDelays.Add(outboxMessage.NextAttemptOnUtc - now.UtcDateTime);
+        }
+
+        retryDelays.Should().Equal(
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(20),
+            TimeSpan.FromSeconds(40),
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1));
+        outboxMessage.Attempts.Should().Be(5);
+        outboxMessage.State.Should().Be(OutboxMessageState.Pending);
     }
 }

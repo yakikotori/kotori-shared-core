@@ -31,11 +31,14 @@ public class EfOutboxMessageRepository : IOutboxMessageRepository
 
     public async Task<List<IOutboxMessage>> GetPendingAsync(int limit)
     {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+
         var messageEntities = await _context.Set<OutboxMessageEntity>()
             .FromSql(
                 $"""
                 SELECT * FROM outbox_messages
                 WHERE "State" = {(int)OutboxMessageState.Pending}
+                AND "NextAttemptOnUtc" <= {now}
                 ORDER BY "OccurredOnUtc"
                 LIMIT {limit}
                 FOR UPDATE SKIP LOCKED

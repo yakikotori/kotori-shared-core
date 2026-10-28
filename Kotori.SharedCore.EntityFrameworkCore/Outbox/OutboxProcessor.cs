@@ -66,10 +66,31 @@ public class OutboxProcessor : IOutboxProcessor
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception while dispatching domain event");
-                outboxMessage.MarkAsFailed(_timeProvider.GetUtcNow().UtcDateTime, ex.Message);
+                HandleDispatchFailure(outboxMessage, ex.Message);
             }
         }
 
         await uow.SaveChangesAsync(cancellationToken);
+    }
+
+    private void HandleDispatchFailure(IOutboxMessage outboxMessage, string errorMessage)
+    {
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var attempt = outboxMessage.Attempts + 1;
+
+        if (attempt >= _options.Value.MaxAttempts)
+        {
+            outboxMessage.MarkAsFailed(now, errorMessage);
+            return;
+        }
+
+        outboxMessage.ScheduleRetry(now + GetRetryDelay(attempt), errorMessage);
+    }
+
+    private TimeSpan GetRetryDelay(int attempt)
+    {
+        var delayTicks = _options.Value.RetryBaseDelay.Ticks * Math.Pow(2, attempt - 1);
+
+        return TimeSpan.FromTicks((long)Math.Min(delayTicks, _options.Value.RetryMaxDelay.Ticks));
     }
 }
