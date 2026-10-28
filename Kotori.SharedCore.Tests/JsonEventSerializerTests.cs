@@ -62,6 +62,17 @@ public class JsonEventSerializerTests
         deserializedEvent.Should().NotBeNull();
         deserializedEvent!.Message.Should().Be("Test message");
     }
+
+    [Fact]
+    public void RoundTrip_PreservesEventId()
+    {
+        var originalEvent = new TestIntegrationEvent { Message = "Test message" };
+        var typeName = typeof(TestIntegrationEvent).AssemblyQualifiedName!;
+
+        var result = _serializer.Deserialize(typeName, _serializer.Serialize(originalEvent));
+
+        result.Unwrap().Id.Should().Be(originalEvent.Id);
+    }
 }
 
 public record TestIntegrationEvent : IntegrationEvent
