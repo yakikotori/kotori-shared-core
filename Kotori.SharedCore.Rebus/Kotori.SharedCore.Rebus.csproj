@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <Title>Kotori's SharedCore Rebus</Title>
+        <Authors>Kotori</Authors>
+        <Version>1.0.0</Version>
+        <TargetFrameworks>net10.0;net9.0</TargetFrameworks>
+        <RepositoryUrl>https://github.com/yakikotori/kotori-shared-core</RepositoryUrl>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Kotori.SharedCore\Kotori.SharedCore.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Rebus" Version="8.9.5" />
+        <PackageReference Include="Rebus.ServiceProvider" Version="10.7.2" />
+    </ItemGroup>
+
+</Project>
