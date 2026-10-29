@@ -133,7 +133,7 @@ This is the right tool for **in-process, same-database** side effects: updating 
 
 ## Transactional Outbox
 
-The outbox guarantees integration events are published **at least once** relative to the database commit — no event is lost if the broker or process dies, but a crash between publish and status update can cause a redelivery, so consumers must be idempotent. An aggregate writes an `OutboxMessageEntity` inside the same transaction as its state change; a background processor picks it up and hands it to an `IIntegrationEventDispatcher` (e.g. MassTransit).
+The outbox guarantees integration events are published **at least once** relative to the database commit — no event is lost if the broker or process dies, but a crash between publish and status update can cause a redelivery, so consumers must be idempotent. An aggregate writes an `OutboxMessageEntity` inside the same transaction as its state change; a background processor picks it up and hands it to an `IIntegrationEventDispatcher` (MassTransit, or in-process handlers).
 
 ### Enable it
 
@@ -149,9 +149,31 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 Register services and publisher:
 
 ```csharp
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddOutbox(builder.Configuration);
 builder.Services.AddSingleton<IIntegrationEventDispatcher, MassTransitIntegrationEventDispatcher>();
 ```
+
+`AddOutbox` does not register `TimeProvider`; the outbox repository and processor require it.
+
+### Dispatch in process
+
+To handle integration events inside the same service instead of publishing to a broker, use `ServiceProviderIntegrationEventDispatcher` and implement `IIntegrationEventHandler<TEvent>`:
+
+```csharp
+public class SendShippingEmail : IIntegrationEventHandler<OrderShipped>
+{
+    public Task HandleAsync(OrderShipped integrationEvent, CancellationToken cancellationToken) => ...;
+}
+
+builder.Services.AddOutbox(builder.Configuration);
+builder.Services.AddSingleton<IIntegrationEventDispatcher, ServiceProviderIntegrationEventDispatcher>();
+builder.Services.AddIntegrationEventHandler<OrderShipped, SendShippingEmail>();
+```
+
+The dispatcher resolves every `IIntegrationEventHandler<TEvent>` registered for the event's runtime type and awaits them in registration order. `AddIntegrationEventHandler` registers the handler as a singleton and ignores a duplicate registration of the same handler. A handler that throws stops the remaining handlers for that message and sends it through the retry policy below, so every handler must be idempotent: on retry, the handlers that already succeeded run again.
+
+Unlike `ServiceProviderDomainEventDispatcher`, which does nothing when an event has no handler, `ServiceProviderIntegrationEventDispatcher` throws `InvalidOperationException` when no handler is registered. The message is retried and eventually marked `Failed` instead of being marked `Processed` and silently dropped.
 
 ### Configure
 
@@ -159,12 +181,14 @@ builder.Services.AddSingleton<IIntegrationEventDispatcher, MassTransitIntegratio
 {
   "OutboxProcessor":           { "BatchSize": 100, "MaxAttempts": 10, "RetryBaseDelay": "00:00:05", "RetryMaxDelay": "00:10:00" },
   "BackgroundOutboxProcessor": { "DelayMs": 500 },
-  "OutboxCleaner":             { "ClearProcessedAfter": "1.00:00:00", "ClearFailedAfter": "7.00:00:00" },
+  "OutboxCleaner":             { "ClearProcessedAfter": "7.00:00:00", "ClearFailedAfter": "30.00:00:00" },
   "BackgroundOutboxCleaner":   { "DelayMs": 60000 }
 }
 ```
 
-`BatchSize`, `ClearProcessedAfter` and `ClearFailedAfter` are required. `MaxAttempts`, `RetryBaseDelay`, `RetryMaxDelay` and both `DelayMs` values fall back to the defaults shown above when unbound.
+`OutboxProcessor:BatchSize` is required. Every other value falls back to the default shown above when unbound, so the `OutboxCleaner` section can be omitted: processed messages are kept for 7 days and failed messages for 30 days. A configured value overrides its default.
+
+`BatchSize` has no default because the right value depends on the dispatcher: the whole batch is dispatched inside one transaction that holds row locks, so slow in-process handlers call for a smaller batch than a broker publish. The configuration binder does not enforce `required`; a missing `BatchSize` binds as `0` and the processor picks up nothing.
 
 ### How messages get written
 
@@ -184,7 +208,7 @@ When dispatch throws, the message stays `Pending`, `Attempts` is incremented, th
 | Entity | `EntityBase` — tracks pending domain events |
 | Value Object | `IValueObject` |
 | Domain Events | `IDomainEvent`, `IDomainEventHandler<T>`, `IDomainEventDispatcher`, `ServiceProviderDomainEventDispatcher` |
-| Integration Events | `IIntegrationEvent`, `IntegrationEvent`, `ICorrelatedEvent`, `IIntegrationEventDispatcher` |
+| Integration Events | `IIntegrationEvent`, `IntegrationEvent`, `ICorrelatedEvent`, `IIntegrationEventHandler<TEvent>`, `IIntegrationEventDispatcher`, `ServiceProviderIntegrationEventDispatcher` |
 | Specification | `ISpecification<T>`, `AndSpecification`, `OrSpecification`, `SpecificationExtensions` |
 
 ### Persistence
@@ -221,6 +245,7 @@ When dispatch throws, the message stays `Pending`, `Attempts` is incremented, th
 | Processor | `IOutboxProcessor`, `OutboxProcessor`, `BackgroundOutboxProcessor` |
 | Cleaner | `IOutboxCleaner`, `OutboxCleaner`, `BackgroundOutboxCleaner` |
 | Messaging bridge | `MassTransitIntegrationEventDispatcher` |
+| In-process dispatch | `ServiceProviderIntegrationEventDispatcher`, `IIntegrationEventHandler<TEvent>`, `ServiceCollectionExtensions.AddIntegrationEventHandler` |
 
 ### Endpoints
 

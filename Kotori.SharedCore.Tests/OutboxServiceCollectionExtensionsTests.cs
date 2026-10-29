@@ -69,4 +69,46 @@ public class OutboxServiceCollectionExtensionsTests
         options.RetryMaxDelay.Should().Be(TimeSpan.FromMinutes(10));
         serviceProvider.GetRequiredService<IOptions<BackgroundOutboxProcessorOptions>>().Value.DelayMs.Should().Be(500);
     }
+    [Fact]
+    public void AddOutbox_UsesDefaultCleanerOptions_WhenSectionMissing()
+    {
+        using var serviceProvider = CreateServiceProvider(new Dictionary<string, string?>
+        {
+            ["OutboxProcessor:BatchSize"] = "100"
+        });
+
+        var options = serviceProvider.GetRequiredService<IOptions<OutboxCleanerOptions>>().Value;
+
+        options.ClearProcessedAfter.Should().Be(TimeSpan.FromDays(7));
+        options.ClearFailedAfter.Should().Be(TimeSpan.FromDays(30));
+    }
+
+    [Fact]
+    public void AddOutbox_BindsCleanerOptions_WhenSectionPresent()
+    {
+        using var serviceProvider = CreateServiceProvider(new Dictionary<string, string?>
+        {
+            ["OutboxCleaner:ClearProcessedAfter"] = "1.00:00:00",
+            ["OutboxCleaner:ClearFailedAfter"] = "14.00:00:00"
+        });
+
+        var options = serviceProvider.GetRequiredService<IOptions<OutboxCleanerOptions>>().Value;
+
+        options.ClearProcessedAfter.Should().Be(TimeSpan.FromDays(1));
+        options.ClearFailedAfter.Should().Be(TimeSpan.FromDays(14));
+    }
+
+    [Fact]
+    public void AddOutbox_KeepsDefaultForUnboundCleanerOption_WhenSectionPartial()
+    {
+        using var serviceProvider = CreateServiceProvider(new Dictionary<string, string?>
+        {
+            ["OutboxCleaner:ClearProcessedAfter"] = "12:00:00"
+        });
+
+        var options = serviceProvider.GetRequiredService<IOptions<OutboxCleanerOptions>>().Value;
+
+        options.ClearProcessedAfter.Should().Be(TimeSpan.FromHours(12));
+        options.ClearFailedAfter.Should().Be(TimeSpan.FromDays(30));
+    }
 }

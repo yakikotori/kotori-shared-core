@@ -1,6 +1,8 @@
+using Kotori.SharedCore.IntegrationEvents;
 using Kotori.SharedCore.Outbox;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Kotori.SharedCore.EntityFrameworkCore.Outbox;
 
@@ -23,5 +25,14 @@ public static class ServiceCollectionExtensions
         
         services.Configure<BackgroundOutboxCleanerOptions>(configuration.GetSection(BackgroundOutboxCleanerOptions.SectionName));
         services.AddHostedService<BackgroundOutboxCleaner>();
+    }
+
+    public static IServiceCollection AddIntegrationEventHandler<TEvent, THandler>(this IServiceCollection services)
+        where TEvent : IIntegrationEvent
+        where THandler : class, IIntegrationEventHandler<TEvent>
+    {
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IIntegrationEventHandler<TEvent>, THandler>());
+
+        return services;
     }
 }

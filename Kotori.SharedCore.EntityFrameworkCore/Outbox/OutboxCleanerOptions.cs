@@ -4,6 +4,6 @@ public record OutboxCleanerOptions
 {
     public const string SectionName = "OutboxCleaner";
     
-    public required TimeSpan ClearProcessedAfter { get; init; }
-    public required TimeSpan ClearFailedAfter { get; init; }
+    public TimeSpan ClearProcessedAfter { get; init; } = TimeSpan.FromDays(7);
+    public TimeSpan ClearFailedAfter { get; init; } = TimeSpan.FromDays(30);
 }
