@@ -203,6 +203,38 @@ public class OutboxRetryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ProcessAsync_SavesTheInterruptedBatch_WhenShutdownIsRequestedMidBatch()
+    {
+        using var shutdown = new CancellationTokenSource();
+
+        _integrationEventDispatcher
+            .DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>())
+            .Returns(
+                _ =>
+                {
+                    shutdown.Cancel();
+                    return Task.CompletedTask;
+                },
+                _ => Task.CompletedTask);
+
+        await AddMessageAsync();
+        _now = _start.AddSeconds(1);
+        await AddMessageAsync();
+
+        await _serviceProvider.GetRequiredService<IOutboxProcessor>().ProcessAsync(shutdown.Token);
+
+        await using var context = await CreateDbContextAsync();
+        var messages = await context.Set<OutboxMessageEntity>()
+            .OrderBy(message => message.OccurredOnUtc)
+            .ToListAsync();
+
+        messages.Select(message => message.State).Should().Equal(OutboxMessageState.Processed, OutboxMessageState.Pending);
+        messages.Select(message => message.Attempts).Should().Equal(1, 0);
+        await _integrationEventDispatcher.Received(1)
+            .DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ClearAsync_RemovesOldProcessedAndFailed_AndKeepsRetryingMessages()
     {
         var oldProcessed = OutboxMessageEntity.Create("Processed", "{}", _start.AddDays(-3));

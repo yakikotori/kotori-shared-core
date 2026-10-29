@@ -42,6 +42,11 @@ public class OutboxProcessor : IOutboxProcessor
         
         foreach (var outboxMessage in outboxMessages)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
             var deserializeEventResult = _eventSerializer.Deserialize(
                 outboxMessage.Type,
                 outboxMessage.Payload);
@@ -63,6 +68,11 @@ public class OutboxProcessor : IOutboxProcessor
 
                 outboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().UtcDateTime);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Outbox dispatch was interrupted by shutdown, the message stays pending");
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception while dispatching domain event");
@@ -70,7 +80,7 @@ public class OutboxProcessor : IOutboxProcessor
             }
         }
 
-        await uow.SaveChangesAsync(cancellationToken);
+        await uow.SaveChangesAsync(CancellationToken.None);
     }
 
     private void HandleDispatchFailure(IOutboxMessage outboxMessage, string errorMessage)

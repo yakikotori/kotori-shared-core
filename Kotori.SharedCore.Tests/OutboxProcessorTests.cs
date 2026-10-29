@@ -305,4 +305,128 @@ public class OutboxProcessorTests
         outboxMessage.Attempts.Should().Be(5);
         outboxMessage.State.Should().Be(OutboxMessageState.Pending);
     }
+
+    [Fact]
+    public async Task OutboxProcessor_StartsNoNewMessage_OnceShutdownIsRequested()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var first = OutboxMessageEntity.Create("First", "{}", DateTime.UtcNow);
+        var second = OutboxMessageEntity.Create("Second", "{}", DateTime.UtcNow);
+        var firstEvent = Substitute.For<IIntegrationEvent>();
+        var secondEvent = Substitute.For<IIntegrationEvent>();
+        var batch = CreateBatch([first, second]);
+
+        batch.EventSerializer.Deserialize("First", Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(firstEvent));
+        batch.EventSerializer.Deserialize("Second", Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(secondEvent));
+        batch.Dispatcher.DispatchAsync(firstEvent, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                shutdown.Cancel();
+                return Task.CompletedTask;
+            });
+
+        await batch.Processor.ProcessAsync(shutdown.Token);
+
+        first.State.Should().Be(OutboxMessageState.Processed);
+        second.State.Should().Be(OutboxMessageState.Pending);
+        second.Attempts.Should().Be(0);
+        await batch.Dispatcher.DidNotReceive().DispatchAsync(secondEvent, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task OutboxProcessor_KeepsMessagePendingWithoutUsingAnAttempt_WhenShutdownCancelsItsDispatch()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var message = OutboxMessageEntity.Create("TestEvent", "{}", DateTime.UtcNow);
+        var batch = CreateBatch([message]);
+
+        batch.EventSerializer.Deserialize(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(Substitute.For<IIntegrationEvent>()));
+        batch.Dispatcher.DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                shutdown.Cancel();
+                return Task.FromCanceled(call.Arg<CancellationToken>());
+            });
+
+        await batch.Processor.ProcessAsync(shutdown.Token);
+
+        message.State.Should().Be(OutboxMessageState.Pending);
+        message.Attempts.Should().Be(0);
+        message.ErrorMessage.Should().BeNull();
+        message.NextAttemptOnUtc.Should().Be(message.OccurredOnUtc);
+    }
+
+    [Fact]
+    public async Task OutboxProcessor_CountsAnAttempt_WhenDispatchIsCancelledWithoutShutdown()
+    {
+        var message = OutboxMessageEntity.Create("TestEvent", "{}", DateTime.UtcNow);
+        var batch = CreateBatch([message]);
+
+        batch.EventSerializer.Deserialize(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(Substitute.For<IIntegrationEvent>()));
+        batch.Dispatcher.DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new TaskCanceledException("Request timed out")));
+
+        await batch.Processor.ProcessAsync(CancellationToken.None);
+
+        message.State.Should().Be(OutboxMessageState.Pending);
+        message.Attempts.Should().Be(1);
+        message.ErrorMessage.Should().Be("Request timed out");
+    }
+
+    [Fact]
+    public async Task OutboxProcessor_SavesTheBatchWithoutTheShutdownToken()
+    {
+        using var shutdown = new CancellationTokenSource();
+        var message = OutboxMessageEntity.Create("TestEvent", "{}", DateTime.UtcNow);
+        var batch = CreateBatch([message]);
+
+        batch.EventSerializer.Deserialize(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(new Ok<IIntegrationEvent, TextError>(Substitute.For<IIntegrationEvent>()));
+        batch.Dispatcher.DispatchAsync(Arg.Any<IIntegrationEvent>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                shutdown.Cancel();
+                return Task.CompletedTask;
+            });
+
+        await batch.Processor.ProcessAsync(shutdown.Token);
+
+        message.State.Should().Be(OutboxMessageState.Processed);
+        await batch.UnitOfWork.Received(1).SaveChangesAsync(CancellationToken.None);
+    }
+
+    private static OutboxBatch CreateBatch(List<IOutboxMessage> messages)
+    {
+        var options = Substitute.For<IOptions<OutboxProcessorOptions>>();
+        var uowFactory = Substitute.For<IUnitOfWorkFactory>();
+        var uow = Substitute.For<IUnitOfWork>();
+        var repository = Substitute.For<IOutboxMessageRepository>();
+        var eventSerializer = Substitute.For<IEventSerializer>();
+        var dispatcher = Substitute.For<IIntegrationEventDispatcher>();
+
+        options.Value.Returns(new OutboxProcessorOptions { BatchSize = messages.Count });
+        uowFactory.CreateAsync().Returns(uow);
+        uow.GetRepository<IOutboxMessageRepository>().Returns(repository);
+        repository.GetPendingAsync(Arg.Any<int>()).Returns(messages);
+
+        var processor = new OutboxProcessor(
+            Substitute.For<ILogger<OutboxProcessor>>(),
+            options,
+            uowFactory,
+            eventSerializer,
+            dispatcher,
+            TimeProvider.System);
+
+        return new OutboxBatch(processor, uow, eventSerializer, dispatcher);
+    }
+
+    private sealed record OutboxBatch(
+        OutboxProcessor Processor,
+        IUnitOfWork UnitOfWork,
+        IEventSerializer EventSerializer,
+        IIntegrationEventDispatcher Dispatcher);
 }
