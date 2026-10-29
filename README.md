@@ -11,6 +11,7 @@ Not designed to be used by others as is, but open-source to be shared if someone
 | `Kotori.SharedCore` | Core abstractions: DDD building blocks, CQRS, Result, Outbox contracts. |
 | `Kotori.SharedCore.EntityFrameworkCore` | EF Core implementations, Outbox storage and background workers, MassTransit bridge. |
 | `Kotori.SharedCore.Endpoints` | Minimal API endpoint conventions with auto-registration. |
+| `Kotori.SharedCore.Rebus` | Rebus bridge: outbox relay to a broker and consumer lanes that run `IIntegrationEventHandler<TEvent>`. |
 
 ## Installation
 
@@ -20,6 +21,7 @@ The packages are only available on GitHub NuGet registry.
 dotnet add package Kotori.SharedCore
 dotnet add package Kotori.SharedCore.EntityFrameworkCore
 dotnet add package Kotori.SharedCore.Endpoints
+dotnet add package Kotori.SharedCore.Rebus
 ```
 
 ## Quick start
@@ -133,7 +135,7 @@ This is the right tool for **in-process, same-database** side effects: updating 
 
 ## Transactional Outbox
 
-The outbox guarantees integration events are published **at least once** relative to the database commit — no event is lost if the broker or process dies, but a crash between publish and status update can cause a redelivery, so consumers must be idempotent. An aggregate writes an `OutboxMessageEntity` inside the same transaction as its state change; a background processor picks it up and hands it to an `IIntegrationEventDispatcher` (MassTransit, or in-process handlers).
+The outbox guarantees integration events are published **at least once** relative to the database commit — no event is lost if the broker or process dies, but a crash between publish and status update can cause a redelivery, so consumers must be idempotent. An aggregate writes an `OutboxMessageEntity` inside the same transaction as its state change; a background processor picks it up and hands it to an `IIntegrationEventDispatcher` (Rebus, MassTransit, or in-process handlers).
 
 ### Enable it
 
@@ -198,6 +200,62 @@ Inside a use case, serialize the integration event and persist it through the ou
 
 When dispatch throws, the message stays `Pending`, `Attempts` is incremented, the error is stored in `ErrorMessage`, and `NextAttemptOnUtc` is pushed out by `RetryBaseDelay * 2^(attempt - 1)`, capped at `RetryMaxDelay`. The attempt that reaches `MaxAttempts` marks the message `Failed`. A message whose payload cannot be deserialized is marked `Failed` immediately, since retrying cannot fix it.
 
+### Shutdown
+
+Once the processor's cancellation token is cancelled, it starts no new message from the batch. A message whose dispatch is cancelled by the shutdown stays `Pending` without using up an attempt; an `OperationCanceledException` thrown while the token is not cancelled, such as an HTTP timeout, is an ordinary failure. The batch is saved with `CancellationToken.None`, so a deploy doesn't relay the messages it already dispatched again.
+
+## Rebus
+
+`Kotori.SharedCore.Rebus` turns the outbox into a relay to a broker and runs the handlers in consumer lanes. Handlers keep implementing `IIntegrationEventHandler<TEvent>` and never see Rebus. The package depends only on `Rebus` and `Rebus.ServiceProvider`; the service chooses the transport (for example `Rebus.RabbitMq`) and the timeout store (for example `Rebus.PostgreSql`).
+
+### Publish
+
+Register a one-way bus as the host's default bus and the Rebus dispatcher as the outbox's `IIntegrationEventDispatcher`:
+
+```csharp
+builder.Services.AddOutbox(builder.Configuration);
+builder.Services.AddRebus(rebus => rebus.Transport(t => t.UseRabbitMqAsOneWayClient(connectionString)));
+builder.Services.AddRebusIntegrationEventDispatcher();
+```
+
+`RebusIntegrationEventDispatcher` publishes the event under its runtime type and sets the Rebus message id to `IntegrationEvent.Id`, so relaying the same row twice publishes the same message id. An `ICorrelatedEvent` also gets its correlation id. A publish failure propagates, so the outbox retries the row; with Rebus.RabbitMq publisher confirms are on by default, so a row is marked processed only after the broker accepted it.
+
+### Consume in lanes
+
+A lane is a Rebus endpoint with one input queue, its own concurrency, its own retry policy and only its own handlers. Each lane runs in its own container through `AddRebusService`, so an event that two lanes subscribe to is delivered once to each lane, and each lane runs only its own handlers.
+
+```csharp
+var notificationRetry = IntegrationEventRetryPolicy
+    .Create(immediateAttempts: 3, baseDelay: TimeSpan.FromSeconds(30), maxDelay: TimeSpan.FromMinutes(5), giveUpAfter: TimeSpan.FromMinutes(30))
+    .Unwrap();
+
+builder.Host.AddIntegrationEventLane(
+    rebus => rebus
+        .Transport(t => t.UseRabbitMq(connectionString, "shop.notifications").Prefetch(1))
+        .Timeouts(t => t.StoreInPostgres(databaseConnectionString, "RebusTimeouts"))
+        .Options(o => { o.SetNumberOfWorkers(1); o.SetMaxParallelism(1); }),
+    errorQueueName: "shop.error",
+    notificationRetry,
+    lane => lane
+        .Handle<OrderShipped, SendShippingEmail>()
+        .Handle<OrderCancelled, SendCancellationEmail>()
+        .Forward<TimeProvider>()
+        .Forward<IUnitOfWorkFactory>());
+```
+
+- `Handle<TEvent, THandler>()` registers the handler as a singleton in the lane's container, registers `IntegrationEventMessageHandler<TEvent>` for the event, and subscribes the lane to the event when its bus is created. Several handlers of one event run in registration order; a throwing handler fails the message, and the retry runs every handler again, so handlers must be idempotent.
+- `Forward<TService>()` copies the host's registrations of a singleton type into the lane's container. Handlers can depend only on forwarded types, `ILogger<T>`, and what the lane registers itself. `ILoggerFactory` and `IHostApplicationLifetime` are always forwarded.
+- The helper calls `RetryStrategy` itself. Don't call it again in the configure callback: Rebus rejects the second registration when the bus is created.
+- Handlers receive the message context's cancellation token, which is cancelled when the lane stops.
+
+### Retries
+
+Rebus tries a message `ImmediateAttempts` times. After that, `IntegrationEventMessageHandler<TEvent>` handles `IFailed<TEvent>` through the lane's `IntegrationEventRetryPolicy`: it defers the whole transport message by `BaseDelay * 2^n`, capped at `MaxDelay`, where `n` is the number of earlier deferrals from Rebus's `rbs2-defer-count` header. Once the deferrals have waited `GiveUpAfter` in total, it dead-letters the message into the lane's error queue with the error description. A replayed dead letter keeps its defer count, so it gets its immediate attempts and is dead-lettered again if it still fails.
+
+Deferral needs a timeout store (`.Timeouts(...)`) or a transport with native delayed delivery. Without one, the deferred copy fails with "A timeout manager has not been configured" when it arrives back in the queue, and the message is dead-lettered within seconds instead of being retried later.
+
+`IntegrationEventRetryPolicy.Create` returns a `Result`: at least one immediate attempt, a positive base delay, a max delay no shorter than the base delay, and a non-negative give-up time. A zero give-up time dead-letters right after the immediate attempts.
+
 ## Patterns
 
 ### Domain-Driven Design
@@ -244,8 +302,16 @@ When dispatch throws, the message stays `Pending`, `Attempts` is incremented, th
 | Serialization | `IEventSerializer`, `JsonEventSerializer` |
 | Processor | `IOutboxProcessor`, `OutboxProcessor`, `BackgroundOutboxProcessor` |
 | Cleaner | `IOutboxCleaner`, `OutboxCleaner`, `BackgroundOutboxCleaner` |
-| Messaging bridge | `MassTransitIntegrationEventDispatcher` |
+| Messaging bridge | `MassTransitIntegrationEventDispatcher`, `RebusIntegrationEventDispatcher` |
 | In-process dispatch | `ServiceProviderIntegrationEventDispatcher`, `IIntegrationEventHandler<TEvent>`, `ServiceCollectionExtensions.AddIntegrationEventHandler` |
+
+### Rebus
+
+| Pattern | Key types |
+| --- | --- |
+| Publisher | `RebusIntegrationEventDispatcher`, `ServiceCollectionExtensions.AddRebusIntegrationEventDispatcher` |
+| Consumer lane | `HostBuilderExtensions.AddIntegrationEventLane`, `IntegrationEventLane`, `IntegrationEventMessageHandler<TEvent>` |
+| Retry policy | `IntegrationEventRetryPolicy`, `IntegrationEventRetryDecision`, `DeferIntegrationEvent`, `DeadLetterIntegrationEvent` |
 
 ### Endpoints
 
