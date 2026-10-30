@@ -123,3 +123,26 @@ public class FailingShippedHandler : IIntegrationEventHandler<CrateShipped>
         throw new InvalidOperationException("Courier API unavailable");
     }
 }
+
+public class LabelPrinter
+{
+    public string Print(Guid crateId) => $"RETURN-{crateId}";
+}
+
+public class LabelPrintingReturnedHandler : IIntegrationEventHandler<CrateReturned>
+{
+    private readonly LabelPrinter _printer;
+    private readonly LaneCallLog _log;
+
+    public LabelPrintingReturnedHandler(LabelPrinter printer, LaneCallLog log)
+    {
+        _printer = printer;
+        _log = log;
+    }
+
+    public Task HandleAsync(CrateReturned integrationEvent, CancellationToken cancellationToken)
+    {
+        _log.Add(_printer.Print(integrationEvent.CrateId), integrationEvent, cancellationToken);
+        return Task.CompletedTask;
+    }
+}

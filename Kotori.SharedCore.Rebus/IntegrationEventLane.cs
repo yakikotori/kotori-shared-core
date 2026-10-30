@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Rebus.Bus;
 using Rebus.Config;
 using Rebus.Retry.Simple;
+using Rebus.Transport;
 
 namespace Kotori.SharedCore.Rebus;
 
@@ -63,19 +64,50 @@ public class IntegrationEventLane
             registration(services);
         }
 
+        var inputQueue = string.Empty;
+
         services.AddRebus(
-            rebus => configure(rebus).Options(options => options.RetryStrategy(
-                errorQueueName: errorQueueName,
-                maxDeliveryAttempts: retryPolicy.ImmediateAttempts,
-                secondLevelRetriesEnabled: true)),
-            onCreated: SubscribeAsync);
+            rebus => configure(rebus).Options(options =>
+            {
+                options.RetryStrategy(
+                    errorQueueName: errorQueueName,
+                    maxDeliveryAttempts: retryPolicy.ImmediateAttempts,
+                    secondLevelRetriesEnabled: true);
+                options.Decorate(context =>
+                {
+                    var transport = context.Get<ITransport>();
+                    inputQueue = transport.Address;
+                    return transport;
+                });
+            }),
+            onCreated: (bus, provider) => ResolveHandlersAndSubscribeAsync(bus, provider, inputQueue));
     }
 
-    private async Task SubscribeAsync(IBus bus)
+    private async Task ResolveHandlersAndSubscribeAsync(IBus bus, IServiceProvider provider, string inputQueue)
     {
         foreach (var eventType in _eventTypes)
         {
+            ResolveHandlers(provider, inputQueue, eventType);
+        }
+
+        foreach (var eventType in _eventTypes)
+        {
             await bus.Subscribe(eventType);
+        }
+    }
+
+    private static void ResolveHandlers(IServiceProvider provider, string inputQueue, Type eventType)
+    {
+        try
+        {
+            provider.GetRequiredService<IntegrationEventRetryPolicy>();
+            provider.GetServices(typeof(IIntegrationEventHandler<>).MakeGenericType(eventType)).ToArray();
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"Integration event lane {inputQueue} cannot resolve the handlers of {eventType}: {exception.Message}",
+                exception);
         }
     }
 }

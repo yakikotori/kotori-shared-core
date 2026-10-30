@@ -34,6 +34,7 @@ public class RebusIntegrationEventLaneTests : IAsyncLifetime
         var builder = new HostBuilder().ConfigureServices(services =>
         {
             services.AddSingleton<LaneCallLog>();
+            services.AddSingleton<LabelPrinter>();
             services.AddRebus(rebus => rebus.Transport(transport => transport.UseInMemoryTransportAsOneWayClient(_network)));
             services.AddRebusIntegrationEventDispatcher();
         });
@@ -124,6 +125,42 @@ public class RebusIntegrationEventLaneTests : IAsyncLifetime
         deadLetter.Headers[Headers.ErrorDetails].Should()
             .Contain("Gave up after 2 deferrals")
             .And.Contain("Courier API unavailable");
+    }
+
+    [Fact]
+    public async Task LaneWhoseHandlerDependsOnATypeThatIsNotForwardedFailsHostStartup()
+    {
+        var start = () => StartAsync(host => host.AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+            .Handle<CrateShipped, LaneAShippedHandler>()
+            .Handle<CrateReturned, LabelPrintingReturnedHandler>()
+            .Forward<LaneCallLog>()));
+
+        var failure = await start.Should().ThrowAsync<InvalidOperationException>();
+
+        failure.WithMessage($"*lane-a*{typeof(CrateReturned).FullName}*{nameof(LabelPrinter)}*");
+        failure.Which.InnerException.Should().NotBeNull();
+        CallLog.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task LaneWithEveryHandlerDependencyForwardedStartsAndHandlesMessages()
+    {
+        await StartAsync(host => host.AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+            .Handle<CrateShipped, LaneAShippedHandler>()
+            .Handle<CrateReturned, LabelPrintingReturnedHandler>()
+            .Forward<LaneCallLog>()
+            .Forward<LabelPrinter>()));
+
+        var returned = new CrateReturned(Guid.NewGuid());
+
+        await DispatchAsync(returned);
+        await CallLog.WaitForAsync(1);
+
+        CallLog.Calls.Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            Handler = $"RETURN-{returned.CrateId}",
+            Event = (IIntegrationEvent)returned
+        });
     }
 
     private async Task WaitForErrorQueueAsync()

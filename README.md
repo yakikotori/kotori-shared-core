@@ -245,6 +245,7 @@ builder.Host.AddIntegrationEventLane(
 
 - `Handle<TEvent, THandler>()` registers the handler as a singleton in the lane's container, registers `IntegrationEventMessageHandler<TEvent>` for the event, and subscribes the lane to the event when its bus is created. Several handlers of one event run in registration order; a throwing handler fails the message, and the retry runs every handler again, so handlers must be idempotent.
 - `Forward<TService>()` copies the host's registrations of a singleton type into the lane's container. Handlers can depend only on forwarded types, `ILogger<T>`, and what the lane registers itself. `ILoggerFactory` and `IHostApplicationLifetime` are always forwarded.
+- When a lane's bus is created, before it subscribes and before it consumes any message, the lane resolves every `IIntegrationEventHandler<TEvent>` of each of its events and its `IntegrationEventRetryPolicy` from its own container. If one of them can't be resolved, for example because a dependency wasn't forwarded, host startup fails with an `InvalidOperationException` that names the lane's input queue, the event type and the resolution error. Handlers are singletons, so the instances built by this check are the ones that later handle messages; their constructors must not have side effects.
 - The helper calls `RetryStrategy` itself. Don't call it again in the configure callback: Rebus rejects the second registration when the bus is created.
 - Handlers receive the message context's cancellation token, which is cancelled when the lane stops.
 
