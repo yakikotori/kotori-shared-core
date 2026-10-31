@@ -41,7 +41,7 @@ public class OutboxProcessorTests
         eventSerializer.Deserialize("", "").ReturnsForAnyArgs(new TextError("Fail"));
         
         var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
-            integrationEventDispatcher, timeProvider);
+            integrationEventDispatcher, timeProvider, Substitute.For<IOutboxMetrics>());
 
         await outboxProcessor.ProcessAsync();
         
@@ -82,7 +82,7 @@ public class OutboxProcessorTests
             .Returns(new Ok<IIntegrationEvent, TextError>(mockEvent));
 
         var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
-            integrationEventDispatcher, timeProvider);
+            integrationEventDispatcher, timeProvider, Substitute.For<IOutboxMetrics>());
 
         await outboxProcessor.ProcessAsync();
 
@@ -130,7 +130,7 @@ public class OutboxProcessorTests
             .Returns(Task.FromException(new InvalidOperationException("Dispatch failed")));
 
         var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
-            integrationEventDispatcher, timeProvider);
+            integrationEventDispatcher, timeProvider, Substitute.For<IOutboxMetrics>());
 
         await outboxProcessor.ProcessAsync();
 
@@ -183,7 +183,7 @@ public class OutboxProcessorTests
             .Returns(Task.FromException(new InvalidOperationException("Dispatch failed")));
 
         var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
-            integrationEventDispatcher, timeProvider);
+            integrationEventDispatcher, timeProvider, Substitute.For<IOutboxMetrics>());
 
         await outboxProcessor.ProcessAsync();
 
@@ -234,7 +234,7 @@ public class OutboxProcessorTests
             .Returns(Task.FromException(new InvalidOperationException("Dispatch failed")));
 
         var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
-            integrationEventDispatcher, timeProvider);
+            integrationEventDispatcher, timeProvider, Substitute.For<IOutboxMetrics>());
 
         await outboxProcessor.ProcessAsync();
 
@@ -286,7 +286,7 @@ public class OutboxProcessorTests
             .Returns(Task.FromException(new InvalidOperationException("Dispatch failed")));
 
         var outboxProcessor = new OutboxProcessor(logger, options, uowFactory, eventSerializer,
-            integrationEventDispatcher, timeProvider);
+            integrationEventDispatcher, timeProvider, Substitute.For<IOutboxMetrics>());
 
         var retryDelays = new List<TimeSpan>();
 
@@ -419,7 +419,8 @@ public class OutboxProcessorTests
             uowFactory,
             eventSerializer,
             dispatcher,
-            TimeProvider.System);
+            TimeProvider.System,
+            Substitute.For<IOutboxMetrics>());
 
         return new OutboxBatch(processor, uow, eventSerializer, dispatcher);
     }

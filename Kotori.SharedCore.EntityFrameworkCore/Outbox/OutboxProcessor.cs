@@ -13,6 +13,7 @@ public class OutboxProcessor : IOutboxProcessor
     private readonly IEventSerializer _eventSerializer;
     private readonly IIntegrationEventDispatcher _integrationEventDispatcher;
     private readonly TimeProvider _timeProvider;
+    private readonly IOutboxMetrics _metrics;
 
     public OutboxProcessor(
         ILogger<OutboxProcessor> logger, 
@@ -20,7 +21,8 @@ public class OutboxProcessor : IOutboxProcessor
         IUnitOfWorkFactory uowFactory,
         IEventSerializer eventSerializer,
         IIntegrationEventDispatcher integrationEventDispatcher,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IOutboxMetrics metrics)
     {
         _logger = logger;
         _options = options;
@@ -28,6 +30,7 @@ public class OutboxProcessor : IOutboxProcessor
         _eventSerializer = eventSerializer;
         _integrationEventDispatcher = integrationEventDispatcher;
         _timeProvider = timeProvider;
+        _metrics = metrics;
     }
 
     public async Task ProcessAsync(CancellationToken cancellationToken = default)
@@ -66,7 +69,10 @@ public class OutboxProcessor : IOutboxProcessor
             {
                 await _integrationEventDispatcher.DispatchAsync(deserializedEvent, cancellationToken);
 
-                outboxMessage.MarkAsProcessed(_timeProvider.GetUtcNow().UtcDateTime);
+                var publishedOnUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
+                outboxMessage.MarkAsProcessed(publishedOnUtc);
+                _metrics.RecordPublished(deserializedEvent.GetType(), publishedOnUtc - outboxMessage.OccurredOnUtc);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -76,14 +82,15 @@ public class OutboxProcessor : IOutboxProcessor
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception while dispatching domain event");
-                HandleDispatchFailure(outboxMessage, ex.Message);
+                _metrics.RecordPublishFailed(deserializedEvent.GetType());
+                HandleDispatchFailure(outboxMessage, deserializedEvent.GetType(), ex.Message);
             }
         }
 
         await uow.SaveChangesAsync(CancellationToken.None);
     }
 
-    private void HandleDispatchFailure(IOutboxMessage outboxMessage, string errorMessage)
+    private void HandleDispatchFailure(IOutboxMessage outboxMessage, Type eventType, string errorMessage)
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var attempt = outboxMessage.Attempts + 1;
@@ -91,6 +98,7 @@ public class OutboxProcessor : IOutboxProcessor
         if (attempt >= _options.Value.MaxAttempts)
         {
             outboxMessage.MarkAsFailed(now, errorMessage);
+            _metrics.RecordGaveUp(eventType);
             return;
         }
 

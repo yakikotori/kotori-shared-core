@@ -14,6 +14,9 @@ public static class ServiceCollectionExtensions
         
         services.AddSingleton<IEventSerializer, JsonEventSerializer>();
         
+        services.AddMetrics();
+        services.TryAddSingleton<IOutboxMetrics, OutboxMetrics>();
+
         services.Configure<OutboxProcessorOptions>(configuration.GetSection(OutboxProcessorOptions.SectionName));
         services.AddSingleton<IOutboxProcessor, OutboxProcessor>();
         
