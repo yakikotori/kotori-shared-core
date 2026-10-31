@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Kotori.SharedCore.Inbox;
 using Kotori.SharedCore.IntegrationEvents;
 using Kotori.SharedCore.Rebus;
 using Microsoft.Extensions.DependencyInjection;
@@ -138,6 +139,21 @@ public class RebusIntegrationEventLaneTests : IAsyncLifetime
         var failure = await start.Should().ThrowAsync<InvalidOperationException>();
 
         failure.WithMessage($"*lane-a*{typeof(CrateReturned).FullName}*{nameof(LabelPrinter)}*");
+        failure.Which.InnerException.Should().NotBeNull();
+        CallLog.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task LaneThatUsesTheInboxWithoutAnInboxInTheHostFailsHostStartup()
+    {
+        var start = () => StartAsync(host => host.AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+            .Handle<CrateShipped, LaneAShippedHandler>()
+            .Forward<LaneCallLog>()
+            .UseInbox()));
+
+        var failure = await start.Should().ThrowAsync<InvalidOperationException>();
+
+        failure.WithMessage($"*lane-a*inbox*{nameof(IInbox)}*");
         failure.Which.InnerException.Should().NotBeNull();
         CallLog.Calls.Should().BeEmpty();
     }

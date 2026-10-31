@@ -1,3 +1,4 @@
+using Kotori.SharedCore.Inbox;
 using Kotori.SharedCore.IntegrationEvents;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -15,6 +16,8 @@ public class IntegrationEventLane
     private readonly List<Type> _eventTypes = [];
     private readonly List<Type> _forwardedSingletonTypes = [typeof(ILoggerFactory), typeof(IHostApplicationLifetime)];
     private readonly List<Action<IServiceCollection>> _handlerRegistrations = [];
+
+    private Action<IServiceCollection> _inboxRegistration = services => services.AddSingleton<IInbox, NoInbox>();
 
     internal IntegrationEventLane()
     {
@@ -50,6 +53,13 @@ public class IntegrationEventLane
         return this;
     }
 
+    public IntegrationEventLane UseInbox()
+    {
+        _inboxRegistration = _ => { };
+
+        return Forward<IInbox>();
+    }
+
     internal void Register(
         IServiceCollection services,
         Func<RebusConfigurer, RebusConfigurer> configure,
@@ -64,7 +74,11 @@ public class IntegrationEventLane
             registration(services);
         }
 
+        _inboxRegistration(services);
+
         var inputQueue = string.Empty;
+
+        services.AddSingleton(_ => new IntegrationEventLaneConsumer(inputQueue));
 
         services.AddRebus(
             rebus => configure(rebus).Options(options =>
@@ -85,6 +99,8 @@ public class IntegrationEventLane
 
     private async Task ResolveHandlersAndSubscribeAsync(IBus bus, IServiceProvider provider, string inputQueue)
     {
+        ResolveInbox(provider, inputQueue);
+
         foreach (var eventType in _eventTypes)
         {
             ResolveHandlers(provider, inputQueue, eventType);
@@ -93,6 +109,21 @@ public class IntegrationEventLane
         foreach (var eventType in _eventTypes)
         {
             await bus.Subscribe(eventType);
+        }
+    }
+
+    private static void ResolveInbox(IServiceProvider provider, string inputQueue)
+    {
+        try
+        {
+            provider.GetRequiredService<IInbox>();
+            provider.GetRequiredService<IntegrationEventLaneConsumer>();
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"Integration event lane {inputQueue} cannot resolve its inbox: {exception.Message}",
+                exception);
         }
     }
 

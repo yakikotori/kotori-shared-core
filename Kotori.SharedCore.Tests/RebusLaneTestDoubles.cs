@@ -42,6 +42,16 @@ public class LaneCallLog
 
         await Task.Delay(500);
     }
+
+    public async Task WaitForEventAsync(IIntegrationEvent integrationEvent)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        while (!_calls.Any(call => call.Event.Equals(integrationEvent)))
+        {
+            await Task.Delay(50, timeout.Token);
+        }
+    }
 }
 
 public class LaneAShippedHandler : IIntegrationEventHandler<CrateShipped>

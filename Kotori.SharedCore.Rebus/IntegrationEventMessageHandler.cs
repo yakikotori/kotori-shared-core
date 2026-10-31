@@ -1,4 +1,6 @@
+using Kotori.SharedCore.Inbox;
 using Kotori.SharedCore.IntegrationEvents;
+using Microsoft.Extensions.Logging;
 using Rebus.Bus;
 using Rebus.Exceptions;
 using Rebus.Extensions;
@@ -14,17 +16,26 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
 {
     private readonly IEnumerable<IIntegrationEventHandler<TEvent>> _handlers;
     private readonly IntegrationEventRetryPolicy _retryPolicy;
+    private readonly IInbox _inbox;
+    private readonly IntegrationEventLaneConsumer _consumer;
+    private readonly ILogger<IntegrationEventMessageHandler<TEvent>> _logger;
     private readonly IMessageContext _messageContext;
     private readonly IBus _bus;
 
     public IntegrationEventMessageHandler(
         IEnumerable<IIntegrationEventHandler<TEvent>> handlers,
         IntegrationEventRetryPolicy retryPolicy,
+        IInbox inbox,
+        IntegrationEventLaneConsumer consumer,
+        ILogger<IntegrationEventMessageHandler<TEvent>> logger,
         IMessageContext messageContext,
         IBus bus)
     {
         _handlers = handlers;
         _retryPolicy = retryPolicy;
+        _inbox = inbox;
+        _consumer = consumer;
+        _logger = logger;
         _messageContext = messageContext;
         _bus = bus;
     }
@@ -33,10 +44,21 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
     {
         var cancellationToken = _messageContext.GetCancellationToken();
 
+        if (await _inbox.HasProcessedAsync(message.Id, _consumer.Name, cancellationToken))
+        {
+            _logger.LogDebug(
+                "Skipped integration event {MessageId} already processed by {Consumer}",
+                message.Id,
+                _consumer.Name);
+            return;
+        }
+
         foreach (var handler in _handlers)
         {
             await handler.HandleAsync(message, cancellationToken);
         }
+
+        await _inbox.MarkProcessedAsync(message.Id, _consumer.Name, CancellationToken.None);
     }
 
     public Task Handle(IFailed<TEvent> message)
