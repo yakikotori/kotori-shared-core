@@ -1,0 +1,14 @@
+<Project>
+
+    <Target Name="EnsureAssemblyVersionMatchesPackageVersion" BeforeTargets="GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+        <PropertyGroup>
+            <_PackageReleaseVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(PackageVersion)', '-.*$', ''))</_PackageReleaseVersion>
+            <_AssemblyReleaseVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '-.*$', ''))</_AssemblyReleaseVersion>
+        </PropertyGroup>
+
+        <Error
+            Condition="'$(AssemblyVersion)' != '' Or '$(_PackageReleaseVersion)' != '$(_AssemblyReleaseVersion)'"
+            Text="$(MSBuildProjectName): package version $(PackageVersion) doesn't match version $(Version), which sets the assembly version. Build and pack with -p:Version=X.Y.Z, not -p:PackageVersion, and don't set AssemblyVersion, so consumers that reference an older assembly version can load this one." />
+    </Target>
+
+</Project>

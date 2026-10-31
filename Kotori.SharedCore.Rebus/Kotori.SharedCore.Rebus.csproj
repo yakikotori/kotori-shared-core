@@ -6,7 +6,6 @@
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Title>Kotori's SharedCore Rebus</Title>
         <Authors>Kotori</Authors>
-        <Version>1.0.0</Version>
         <TargetFrameworks>net10.0;net9.0</TargetFrameworks>
         <RepositoryUrl>https://github.com/yakikotori/kotori-shared-core</RepositoryUrl>
     </PropertyGroup>
