@@ -12,6 +12,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Kotori.SharedCore.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Kotori.SharedCore\Kotori.SharedCore.csproj" />
     </ItemGroup>
 

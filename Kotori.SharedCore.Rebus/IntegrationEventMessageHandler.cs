@@ -18,6 +18,8 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
     private readonly IntegrationEventRetryPolicy _retryPolicy;
     private readonly IInbox _inbox;
     private readonly IntegrationEventLaneConsumer _consumer;
+    private readonly IIntegrationEventLaneMetrics _metrics;
+    private readonly TimeProvider _timeProvider;
     private readonly ILogger<IntegrationEventMessageHandler<TEvent>> _logger;
     private readonly IMessageContext _messageContext;
     private readonly IBus _bus;
@@ -27,6 +29,8 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
         IntegrationEventRetryPolicy retryPolicy,
         IInbox inbox,
         IntegrationEventLaneConsumer consumer,
+        IIntegrationEventLaneMetrics metrics,
+        TimeProvider timeProvider,
         ILogger<IntegrationEventMessageHandler<TEvent>> logger,
         IMessageContext messageContext,
         IBus bus)
@@ -35,6 +39,8 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
         _retryPolicy = retryPolicy;
         _inbox = inbox;
         _consumer = consumer;
+        _metrics = metrics;
+        _timeProvider = timeProvider;
         _logger = logger;
         _messageContext = messageContext;
         _bus = bus;
@@ -50,15 +56,22 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
                 "Skipped integration event {MessageId} already processed by {Consumer}",
                 message.Id,
                 _consumer.Name);
+            _metrics.RecordDuplicateSkipped(_consumer, typeof(TEvent));
             return;
         }
+
+        var startedAt = _timeProvider.GetTimestamp();
 
         foreach (var handler in _handlers)
         {
             await handler.HandleAsync(message, cancellationToken);
         }
 
+        var duration = _timeProvider.GetElapsedTime(startedAt);
+
         await _inbox.MarkProcessedAsync(message.Id, _consumer.Name, CancellationToken.None);
+
+        _metrics.RecordHandled(_consumer, typeof(TEvent), duration);
     }
 
     public Task Handle(IFailed<TEvent> message)
@@ -67,11 +80,25 @@ public class IntegrationEventMessageHandler<TEvent> : IHandleMessages<TEvent>, I
 
         return _retryPolicy.Decide(deferrals) switch
         {
-            DeferIntegrationEvent defer => _bus.Advanced.TransportMessage.Defer(defer.Delay),
-            DeadLetterIntegrationEvent => _bus.Advanced.TransportMessage.Deadletter(
+            DeferIntegrationEvent defer => DeferAsync(defer.Delay),
+            DeadLetterIntegrationEvent => DeadLetterAsync(
                 $"Gave up after {deferrals} deferrals{Environment.NewLine}{Environment.NewLine}{message.ErrorDescription}"),
             var decision => throw new ArgumentOutOfRangeException(nameof(decision), decision, "Unknown retry decision")
         };
+    }
+
+    private async Task DeferAsync(TimeSpan delay)
+    {
+        await _bus.Advanced.TransportMessage.Defer(delay);
+
+        _metrics.RecordDeferred(_consumer, typeof(TEvent), delay);
+    }
+
+    private async Task DeadLetterAsync(string errorDetails)
+    {
+        await _bus.Advanced.TransportMessage.Deadletter(errorDetails);
+
+        _metrics.RecordDeadLettered(_consumer, typeof(TEvent));
     }
 
     private static int DeferralsOf(IFailed<TEvent> message)

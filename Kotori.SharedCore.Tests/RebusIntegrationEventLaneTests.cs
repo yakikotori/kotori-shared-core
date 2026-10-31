@@ -1,9 +1,13 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using FluentAssertions;
 using Kotori.SharedCore.Inbox;
 using Kotori.SharedCore.IntegrationEvents;
 using Kotori.SharedCore.Rebus;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 using Rebus.Config;
 using Rebus.Messages;
 using Rebus.Persistence.InMem;
@@ -56,6 +60,9 @@ public class RebusIntegrationEventLaneTests : IAsyncLifetime
         => _host.Services.GetRequiredService<IIntegrationEventDispatcher>().DispatchAsync(integrationEvent);
 
     private LaneCallLog CallLog => _host.Services.GetRequiredService<LaneCallLog>();
+
+    private MetricCollector<T> Collect<T>(string instrument) where T : struct
+        => new(_host.Services.GetRequiredService<IMeterFactory>(), KotoriSharedCoreMetrics.MeterName, instrument);
 
     [Fact]
     public async Task LaneRunsEveryHandlerOfTheEventInOrderWithTheMessageCancellationToken()
@@ -179,6 +186,99 @@ public class RebusIntegrationEventLaneTests : IAsyncLifetime
         });
     }
 
+    [Fact]
+    public async Task LaneRecordsAHandledMessageWithTheTimeItsHandlersTook()
+    {
+        var clock = new FakeTimeProvider();
+
+        await StartAsync(host => host
+            .ConfigureServices((_, services) => services.AddSingleton(clock).AddSingleton<TimeProvider>(clock))
+            .AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+                .Handle<CrateShipped, ClockAdvancingShippedHandler>()
+                .Handle<CrateShipped, LaneAShippedAuditHandler>()
+                .Forward<LaneCallLog>()
+                .Forward<FakeTimeProvider>()
+                .Forward<TimeProvider>()));
+
+        using var handled = Collect<long>("kotori.lane.messages.handled");
+        using var duration = Collect<double>("kotori.lane.handler.duration");
+
+        await DispatchAsync(new CrateShipped(Guid.NewGuid()));
+        await duration.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(30));
+
+        var expectedTags = new Dictionary<string, object?> { ["event.type"] = nameof(CrateShipped), ["lane"] = "lane-a" };
+        var count = handled.GetMeasurementSnapshot().Should().ContainSingle().Subject;
+        count.Value.Should().Be(1);
+        count.Tags.Should().BeEquivalentTo(expectedTags);
+        var seconds = duration.GetMeasurementSnapshot().Should().ContainSingle().Subject;
+        seconds.Value.Should().Be(2);
+        seconds.Tags.Should().BeEquivalentTo(expectedTags);
+    }
+
+    [Fact]
+    public async Task LaneRecordsEachDeferralOfAFailingMessageAndThenItsDeadLetter()
+    {
+        await StartAsync(host => host.AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+            .Handle<CrateShipped, FailingShippedHandler>()
+            .Forward<LaneCallLog>()));
+
+        using var handled = Collect<long>("kotori.lane.messages.handled");
+        using var deferred = Collect<long>("kotori.lane.messages.deferred");
+        using var deadLettered = Collect<long>("kotori.lane.messages.dead_lettered");
+
+        await DispatchAsync(new CrateShipped(Guid.NewGuid()));
+        await deadLettered.WaitForMeasurementsAsync(1, TimeSpan.FromSeconds(30));
+
+        var expectedTags = new Dictionary<string, object?> { ["event.type"] = nameof(CrateShipped), ["lane"] = "lane-a" };
+        deferred.GetMeasurementSnapshot().Should().HaveCount(2).And.AllSatisfy(measurement =>
+        {
+            measurement.Value.Should().Be(1);
+            measurement.Tags.Should().BeEquivalentTo(expectedTags);
+        });
+        deadLettered.GetMeasurementSnapshot().Should().ContainSingle().Which.Tags.Should().BeEquivalentTo(expectedTags);
+        handled.GetMeasurementSnapshot().Should().BeEmpty();
+        CallLog.Calls.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public async Task LaneRecordsThroughTheLaneMetricsTheHostRegistered()
+    {
+        var metrics = new RecordingLaneMetrics();
+
+        await StartAsync(host => host
+            .ConfigureServices((_, services) => services.AddSingleton<IIntegrationEventLaneMetrics>(metrics))
+            .AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+                .Handle<CrateShipped, LaneAShippedHandler>()
+                .Forward<LaneCallLog>())
+            .AddIntegrationEventLane(InMemoryLane("lane-b"), ErrorQueue, _quickRetry, lane => lane
+                .Handle<CrateShipped, LaneBShippedHandler>()
+                .Forward<LaneCallLog>()));
+
+        await DispatchAsync(new CrateShipped(Guid.NewGuid()));
+        await CallLog.WaitForAsync(2);
+
+        _host.Services.GetRequiredService<IIntegrationEventLaneMetrics>().Should().BeSameAs(metrics);
+        metrics.Records.Should().BeEquivalentTo(
+            $"handled lane-a {nameof(CrateShipped)}",
+            $"handled lane-b {nameof(CrateShipped)}");
+    }
+
+    [Fact]
+    public async Task HostWhoseLaneMetricsCannotBeBuiltFailsStartupBeforeTheLaneConsumes()
+    {
+        var start = () => StartAsync(host => host
+            .ConfigureServices((_, services) => services.AddSingleton<IIntegrationEventLaneMetrics>(
+                _ => throw new InvalidOperationException("Meter provider unavailable")))
+            .AddIntegrationEventLane(InMemoryLane("lane-a"), ErrorQueue, _quickRetry, lane => lane
+                .Handle<CrateShipped, LaneAShippedHandler>()
+                .Forward<LaneCallLog>()));
+
+        var failure = await start.Should().ThrowAsync<InvalidOperationException>();
+
+        failure.WithMessage("Meter provider unavailable");
+        CallLog.Calls.Should().BeEmpty();
+    }
+
     private async Task WaitForErrorQueueAsync()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -207,4 +307,42 @@ public class IntegrationEventLaneRegistrationTests
 
         addLane.Should().Throw<InvalidOperationException>();
     }
+}
+
+public class ClockAdvancingShippedHandler : IIntegrationEventHandler<CrateShipped>
+{
+    private readonly FakeTimeProvider _clock;
+    private readonly LaneCallLog _log;
+
+    public ClockAdvancingShippedHandler(FakeTimeProvider clock, LaneCallLog log)
+    {
+        _clock = clock;
+        _log = log;
+    }
+
+    public Task HandleAsync(CrateShipped integrationEvent, CancellationToken cancellationToken)
+    {
+        _clock.Advance(TimeSpan.FromSeconds(2));
+        _log.Add(nameof(ClockAdvancingShippedHandler), integrationEvent, cancellationToken);
+        return Task.CompletedTask;
+    }
+}
+
+public class RecordingLaneMetrics : IIntegrationEventLaneMetrics
+{
+    private readonly ConcurrentQueue<string> _records = new();
+
+    public IReadOnlyList<string> Records => _records.ToArray();
+
+    public void RecordHandled(IntegrationEventLaneConsumer lane, Type eventType, TimeSpan duration)
+        => _records.Enqueue($"handled {lane.Name} {eventType.Name}");
+
+    public void RecordDuplicateSkipped(IntegrationEventLaneConsumer lane, Type eventType)
+        => _records.Enqueue($"skipped {lane.Name} {eventType.Name}");
+
+    public void RecordDeferred(IntegrationEventLaneConsumer lane, Type eventType, TimeSpan delay)
+        => _records.Enqueue($"deferred {lane.Name} {eventType.Name} {delay}");
+
+    public void RecordDeadLettered(IntegrationEventLaneConsumer lane, Type eventType)
+        => _records.Enqueue($"dead-lettered {lane.Name} {eventType.Name}");
 }

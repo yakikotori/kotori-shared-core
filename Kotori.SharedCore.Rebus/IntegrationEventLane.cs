@@ -14,7 +14,12 @@ namespace Kotori.SharedCore.Rebus;
 public class IntegrationEventLane
 {
     private readonly List<Type> _eventTypes = [];
-    private readonly List<Type> _forwardedSingletonTypes = [typeof(ILoggerFactory), typeof(IHostApplicationLifetime)];
+    private readonly List<Type> _forwardedSingletonTypes =
+    [
+        typeof(ILoggerFactory),
+        typeof(IHostApplicationLifetime),
+        typeof(IIntegrationEventLaneMetrics)
+    ];
     private readonly List<Action<IServiceCollection>> _handlerRegistrations = [];
 
     private Action<IServiceCollection> _inboxRegistration = services => services.AddSingleton<IInbox, NoInbox>();
@@ -67,6 +72,7 @@ public class IntegrationEventLane
         IntegrationEventRetryPolicy retryPolicy)
     {
         services.TryAdd(ServiceDescriptor.Singleton(typeof(ILogger<>), typeof(Logger<>)));
+        services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(retryPolicy);
 
         foreach (var registration in _handlerRegistrations)
@@ -100,6 +106,7 @@ public class IntegrationEventLane
     private async Task ResolveHandlersAndSubscribeAsync(IBus bus, IServiceProvider provider, string inputQueue)
     {
         ResolveInbox(provider, inputQueue);
+        ResolveMetrics(provider, inputQueue);
 
         foreach (var eventType in _eventTypes)
         {
@@ -123,6 +130,21 @@ public class IntegrationEventLane
         {
             throw new InvalidOperationException(
                 $"Integration event lane {inputQueue} cannot resolve its inbox: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static void ResolveMetrics(IServiceProvider provider, string inputQueue)
+    {
+        try
+        {
+            provider.GetRequiredService<IIntegrationEventLaneMetrics>();
+            provider.GetRequiredService<TimeProvider>();
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidOperationException(
+                $"Integration event lane {inputQueue} cannot resolve its metrics: {exception.Message}",
                 exception);
         }
     }

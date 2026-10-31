@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using FluentAssertions;
 using Kotori.SharedCore.DomainEvents;
 using Kotori.SharedCore.EntityFrameworkCore;
@@ -9,6 +10,7 @@ using Kotori.SharedCore.Rebus;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
 using Rebus.Config;
@@ -116,6 +118,9 @@ public class RabbitMqInboxLaneTests : IClassFixture<InboxLaneContainers>, IAsync
 
     private LaneCallLog CallLog => _host.Services.GetRequiredService<LaneCallLog>();
 
+    private MetricCollector<long> Collect(string instrument)
+        => new(_host.Services.GetRequiredService<IMeterFactory>(), KotoriSharedCoreMetrics.MeterName, instrument);
+
     private async Task<List<string>> ConsumersThatProcessedAsync(Guid messageId)
     {
         await using var context = await _host.Services
@@ -166,6 +171,32 @@ public class RabbitMqInboxLaneTests : IClassFixture<InboxLaneContainers>, IAsync
             (nameof(LaneAShippedHandler), shipped),
             (nameof(LaneAReturnedHandler), marker));
         (await ConsumersThatProcessedAsync(shipped.Id)).Should().Equal(_laneA);
+    }
+
+    [Fact]
+    public async Task LaneRecordsTheDuplicateItsInboxSkipped()
+    {
+        await StartAsync(host => host.AddIntegrationEventLane(SerialRabbitMqLane(_laneA), ErrorQueue, _quickRetry, lane => lane
+            .Handle<CrateShipped, LaneAShippedHandler>()
+            .Handle<CrateReturned, LaneAReturnedHandler>()
+            .Forward<LaneCallLog>()
+            .UseInbox()));
+
+        using var skipped = Collect("kotori.inbox.duplicates.skipped");
+        using var handled = Collect("kotori.lane.messages.handled");
+
+        var shipped = new CrateShipped(Guid.NewGuid());
+
+        await DispatchAsync(shipped);
+        await DispatchAsync(shipped);
+        await DispatchAsync(new CrateReturned(Guid.NewGuid()));
+        await handled.WaitForMeasurementsAsync(2, TimeSpan.FromSeconds(30));
+
+        skipped.GetMeasurementSnapshot().Should().ContainSingle().Which.Tags.Should().BeEquivalentTo(
+            new Dictionary<string, object?> { ["event.type"] = nameof(CrateShipped), ["lane"] = _laneA });
+        handled.GetMeasurementSnapshot().Select(measurement => measurement.Tags["event.type"]).Should().Equal(
+            nameof(CrateShipped),
+            nameof(CrateReturned));
     }
 
     [Fact]

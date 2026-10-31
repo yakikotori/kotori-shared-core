@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Rebus.Config;
 
@@ -21,8 +23,10 @@ public static class HostBuilderExtensions
             throw new InvalidOperationException("An integration event lane needs at least one handler");
         }
 
-        return hostBuilder.AddRebusService(
-            services => lane.Register(services, configure, errorQueueName, retryPolicy),
-            lane.ForwardedSingletonTypes);
+        return hostBuilder
+            .ConfigureServices((_, services) => services.TryAddSingleton<IIntegrationEventLaneMetrics, IntegrationEventLaneMetrics>())
+            .AddRebusService(
+                services => lane.Register(services, configure, errorQueueName, retryPolicy),
+                lane.ForwardedSingletonTypes);
     }
 }
