@@ -8,8 +8,8 @@ Not designed to be used by others as is, but open-source to be shared if someone
 
 | Package | Purpose |
 | --- | --- |
-| `Kotori.SharedCore` | Core abstractions: DDD building blocks, CQRS, Result, Outbox and Inbox contracts. |
-| `Kotori.SharedCore.EntityFrameworkCore` | EF Core implementations, Outbox and Inbox storage and background workers, MassTransit bridge. |
+| `Kotori.SharedCore` | Core abstractions: DDD building blocks, CQRS, Result, Outbox and Inbox contracts, outbox metrics contract. |
+| `Kotori.SharedCore.EntityFrameworkCore` | EF Core implementations, Outbox and Inbox storage and background workers, outbox metrics, MassTransit bridge. |
 | `Kotori.SharedCore.Endpoints` | Minimal API endpoint conventions with auto-registration. |
 | `Kotori.SharedCore.Rebus` | Rebus bridge: outbox relay to a broker and consumer lanes that run `IIntegrationEventHandler<TEvent>`, optionally deduplicated by the inbox. |
 
@@ -244,9 +244,9 @@ builder.Host.AddIntegrationEventLane(
 ```
 
 - `Handle<TEvent, THandler>()` registers the handler as a singleton in the lane's container, registers `IntegrationEventMessageHandler<TEvent>` for the event, and subscribes the lane to the event when its bus is created. Several handlers of one event run in registration order; a throwing handler fails the message, and the retry runs every handler again, so handlers must be idempotent.
-- `Forward<TService>()` copies the host's registrations of a singleton type into the lane's container. Handlers can depend only on forwarded types, `ILogger<T>`, and what the lane registers itself. `ILoggerFactory` and `IHostApplicationLifetime` are always forwarded.
+- `Forward<TService>()` copies the host's registrations of a singleton type into the lane's container. Handlers can depend only on forwarded types, `ILogger<T>`, and what the lane registers itself. `ILoggerFactory`, `IHostApplicationLifetime` and `IIntegrationEventLaneMetrics` are always forwarded. The lane registers `TimeProvider.System` unless `TimeProvider` is forwarded.
 - `UseInbox()` forwards the host's `IInbox` into the lane, so the lane skips a message it already handled. See [Inbox](#inbox). Without it, the lane runs every copy it receives.
-- When a lane's bus is created, before it subscribes and before it consumes any message, the lane resolves its `IInbox`, every `IIntegrationEventHandler<TEvent>` of each of its events and its `IntegrationEventRetryPolicy` from its own container. If one of them can't be resolved, for example because a dependency wasn't forwarded or a lane calls `UseInbox()` in a host without `AddInbox`, host startup fails with an `InvalidOperationException` that names the lane's input queue and the resolution error, and the event type when a handler failed. Handlers are singletons, so the instances built by this check are the ones that later handle messages; their constructors must not have side effects.
+- When a lane's bus is created, before it subscribes and before it consumes any message, the lane resolves its `IInbox`, its `IIntegrationEventLaneMetrics` and `TimeProvider`, every `IIntegrationEventHandler<TEvent>` of each of its events and its `IntegrationEventRetryPolicy` from its own container. If one of them can't be resolved, for example because a dependency wasn't forwarded or a lane calls `UseInbox()` in a host without `AddInbox`, host startup fails with an `InvalidOperationException` that names the lane's input queue and the resolution error, and the event type when a handler failed. Handlers are singletons, so the instances built by this check are the ones that later handle messages; their constructors must not have side effects.
 - The helper calls `RetryStrategy` itself. Don't call it again in the configure callback: Rebus rejects the second registration when the bus is created.
 - Handlers receive the message context's cancellation token, which is cancelled when the lane stops.
 
@@ -321,6 +321,44 @@ A lane without `UseInbox()` gets an inbox that never reports a message as proces
 ```
 
 Both sections are optional and default to the values above. `BackgroundInboxCleaner` deletes the records older than `ClearProcessedAfter`. Keep it longer than a message can stay in a queue, including deferrals and dead letters you may replay, because a copy that arrives after its record was deleted runs again.
+
+## Metrics
+
+The outbox, the lanes and the inbox record metrics through `System.Diagnostics.Metrics` on one meter, `KotoriSharedCoreMetrics.MeterName` (`"Kotori.SharedCore"`). The meter comes from the container's `IMeterFactory`, never from a static `Meter`. Nothing queries the database to produce them.
+
+| Instrument | Type | Unit | Tags | Recorded when |
+| --- | --- | --- | --- | --- |
+| `kotori.outbox.relay.lag` | histogram | `s` | `event.type` | a dispatch succeeded; the value is the time from the row's `OccurredOnUtc` to that moment |
+| `kotori.outbox.publish.failures` | counter | `{attempt}` | `event.type` | a dispatch threw, including the attempt that gives up; a dispatch cancelled by shutdown is not counted |
+| `kotori.outbox.messages.gave_up` | counter | `{message}` | `event.type` | a failed dispatch reached `MaxAttempts` and the row became `Failed` |
+| `kotori.lane.messages.handled` | counter | `{message}` | `event.type`, `lane` | every handler of a message succeeded and the inbox recorded it |
+| `kotori.lane.handler.duration` | histogram | `s` | `event.type`, `lane` | with `handled`; the value is the time every handler of the message took together |
+| `kotori.lane.messages.deferred` | counter | `{message}` | `event.type`, `lane` | the immediate attempts failed and the retry policy deferred the message |
+| `kotori.lane.messages.dead_lettered` | counter | `{message}` | `event.type`, `lane` | the retry policy gave up and the message moved to the lane's error queue |
+| `kotori.inbox.duplicates.skipped` | counter | `{message}` | `event.type`, `lane` | a lane with `UseInbox()` skipped a message its inbox had already recorded |
+
+- `event.type` is the event's short type name, `Type.Name`.
+- `lane` is the lane's input queue, `IntegrationEventLaneConsumer.Name`.
+- The histograms advise bucket boundaries in seconds: from 10 ms to 1 hour for the relay lag, and from 5 ms to 60 s for the handler duration.
+- A row whose payload can't be deserialized is marked `Failed` without a dispatch, so it is not counted as a publish failure or as giving up.
+- A deferral counts once per deferral: a message deferred twice and then dead-lettered adds 2 to `deferred` and 1 to `dead_lettered`. Deferrals are the early signal of a failing downstream, hours before a dead letter.
+
+### Register them
+
+There is nothing to register. `AddOutbox` registers `OutboxMetrics` as `IOutboxMetrics`, and `AddIntegrationEventLane` registers `IntegrationEventLaneMetrics` as `IIntegrationEventLaneMetrics` once in the host, which every lane forwards. Both use `TryAdd`, so a service or a test that registers its own implementation first keeps it. The generic host registers `IMeterFactory`; `AddOutbox` also calls `AddMetrics()`, so the outbox works in a container without a host.
+
+### Export them
+
+The instruments record nothing until a listener enables the meter. With OpenTelemetry:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddMeter(KotoriSharedCoreMetrics.MeterName)
+        .AddOtlpExporter());
+```
+
+Use the exporter the service already has, for example `AddPrometheusExporter()` with `app.MapPrometheusScrapingEndpoint()`. Prometheus names the instruments with underscores and the unit, for example `kotori_outbox_relay_lag_seconds`.
 
 ## Patterns
 
