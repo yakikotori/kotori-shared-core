@@ -8,10 +8,10 @@ Not designed to be used by others as is, but open-source to be shared if someone
 
 | Package | Purpose |
 | --- | --- |
-| `Kotori.SharedCore` | Core abstractions: DDD building blocks, CQRS, Result, Outbox contracts. |
-| `Kotori.SharedCore.EntityFrameworkCore` | EF Core implementations, Outbox storage and background workers, MassTransit bridge. |
+| `Kotori.SharedCore` | Core abstractions: DDD building blocks, CQRS, Result, Outbox and Inbox contracts. |
+| `Kotori.SharedCore.EntityFrameworkCore` | EF Core implementations, Outbox and Inbox storage and background workers, MassTransit bridge. |
 | `Kotori.SharedCore.Endpoints` | Minimal API endpoint conventions with auto-registration. |
-| `Kotori.SharedCore.Rebus` | Rebus bridge: outbox relay to a broker and consumer lanes that run `IIntegrationEventHandler<TEvent>`. |
+| `Kotori.SharedCore.Rebus` | Rebus bridge: outbox relay to a broker and consumer lanes that run `IIntegrationEventHandler<TEvent>`, optionally deduplicated by the inbox. |
 
 ## Installation
 
@@ -245,7 +245,8 @@ builder.Host.AddIntegrationEventLane(
 
 - `Handle<TEvent, THandler>()` registers the handler as a singleton in the lane's container, registers `IntegrationEventMessageHandler<TEvent>` for the event, and subscribes the lane to the event when its bus is created. Several handlers of one event run in registration order; a throwing handler fails the message, and the retry runs every handler again, so handlers must be idempotent.
 - `Forward<TService>()` copies the host's registrations of a singleton type into the lane's container. Handlers can depend only on forwarded types, `ILogger<T>`, and what the lane registers itself. `ILoggerFactory` and `IHostApplicationLifetime` are always forwarded.
-- When a lane's bus is created, before it subscribes and before it consumes any message, the lane resolves every `IIntegrationEventHandler<TEvent>` of each of its events and its `IntegrationEventRetryPolicy` from its own container. If one of them can't be resolved, for example because a dependency wasn't forwarded, host startup fails with an `InvalidOperationException` that names the lane's input queue, the event type and the resolution error. Handlers are singletons, so the instances built by this check are the ones that later handle messages; their constructors must not have side effects.
+- `UseInbox()` forwards the host's `IInbox` into the lane, so the lane skips a message it already handled. See [Inbox](#inbox). Without it, the lane runs every copy it receives.
+- When a lane's bus is created, before it subscribes and before it consumes any message, the lane resolves its `IInbox`, every `IIntegrationEventHandler<TEvent>` of each of its events and its `IntegrationEventRetryPolicy` from its own container. If one of them can't be resolved, for example because a dependency wasn't forwarded or a lane calls `UseInbox()` in a host without `AddInbox`, host startup fails with an `InvalidOperationException` that names the lane's input queue and the resolution error, and the event type when a handler failed. Handlers are singletons, so the instances built by this check are the ones that later handle messages; their constructors must not have side effects.
 - The helper calls `RetryStrategy` itself. Don't call it again in the configure callback: Rebus rejects the second registration when the bus is created.
 - Handlers receive the message context's cancellation token, which is cancelled when the lane stops.
 
@@ -256,6 +257,70 @@ Rebus tries a message `ImmediateAttempts` times. After that, `IntegrationEventMe
 Deferral needs a timeout store (`.Timeouts(...)`) or a transport with native delayed delivery. Without one, the deferred copy fails with "A timeout manager has not been configured" when it arrives back in the queue, and the message is dead-lettered within seconds instead of being retried later.
 
 `IntegrationEventRetryPolicy.Create` returns a `Result`: at least one immediate attempt, a positive base delay, a max delay no shorter than the base delay, and a non-negative give-up time. A zero give-up time dead-letters right after the immediate attempts.
+
+## Inbox
+
+Delivery from the outbox through a broker is at least once. A lane can receive the same message twice: the outbox relays a row again when the broker's publisher confirm was lost, and the broker redelivers a message when the consumer stopped after its handlers ran but before the ack. Both copies carry the same message id, `IntegrationEvent.Id`. The inbox records the message id and the consumer after the message was handled, and a lane that uses it skips a message it has already recorded.
+
+### Enable it
+
+Add the inbox entity to your `DbContext`:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.ApplyConfiguration(new OutboxMessageEntityTypeConfiguration());
+    modelBuilder.ApplyConfiguration(new InboxMessageEntityTypeConfiguration());
+}
+```
+
+A service that creates its schema with manual migrations creates the same table:
+
+```sql
+create table inbox_messages ("MessageId" uuid not null, "Consumer" varchar(200) not null, "ProcessedOnUtc" timestamptz not null, constraint "PK_inbox_messages" primary key ("MessageId", "Consumer"));
+create index "IX_inbox_messages_ProcessedOnUtc" on inbox_messages ("ProcessedOnUtc");
+```
+
+The constraint and index names are the ones EF Core generates, so a later EF migration doesn't see a difference.
+
+Register the inbox in the host and turn it on in each lane that should deduplicate:
+
+```csharp
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddInbox(builder.Configuration);
+
+builder.Host.AddIntegrationEventLane(
+    configure, errorQueueName, retryPolicy,
+    lane => lane
+        .Handle<OrderShipped, SendShippingEmail>()
+        .Forward<IUnitOfWorkFactory>()
+        .UseInbox());
+```
+
+`AddInbox` registers the inbox repository factory (`IRepositoryFactory<IInboxMessageRepository>` through `EfInboxMessageRepository`), `IInbox`, `InboxCleaner` and the hosted `BackgroundInboxCleaner`. Like `AddOutbox`, it needs the unit of work wiring and a registered `TimeProvider`.
+
+### How a lane uses it
+
+The consumer is the lane's input queue name, so every lane keeps its own record: an event handled by one lane still runs on another lane that subscribes to it. For each message, `IntegrationEventMessageHandler<TEvent>`:
+
+1. asks `IInbox.HasProcessedAsync(message.Id, inputQueue)`, and if the message was recorded, logs it at debug level and acks it without running any handler;
+2. runs every handler of the event;
+3. calls `IInbox.MarkProcessedAsync(message.Id, inputQueue)`.
+
+A handler that throws leaves the message unrecorded, so the retries and deferrals described above run every handler again. The record is written with `CancellationToken.None`, so a lane that stops after its handlers succeeded still records the message. Each call uses its own unit of work, separate from the handlers' work, so a handler is still at least once in the short window between its success and the record. `MarkProcessedAsync` is an `INSERT ... ON CONFLICT DO NOTHING`, so two copies handled at the same time don't fail each other.
+
+A lane without `UseInbox()` gets an inbox that never reports a message as processed and records nothing, so it runs every copy it receives, as before 1.5.0.
+
+### Configure
+
+```json
+{
+  "InboxCleaner":           { "ClearProcessedAfter": "7.00:00:00" },
+  "BackgroundInboxCleaner": { "DelayMs": 60000 }
+}
+```
+
+Both sections are optional and default to the values above. `BackgroundInboxCleaner` deletes the records older than `ClearProcessedAfter`. Keep it longer than a message can stay in a queue, including deferrals and dead letters you may replay, because a copy that arrives after its record was deleted runs again.
 
 ## Patterns
 
@@ -306,12 +371,22 @@ Deferral needs a timeout store (`.Timeouts(...)`) or a transport with native del
 | Messaging bridge | `MassTransitIntegrationEventDispatcher`, `RebusIntegrationEventDispatcher` |
 | In-process dispatch | `ServiceProviderIntegrationEventDispatcher`, `IIntegrationEventHandler<TEvent>`, `ServiceCollectionExtensions.AddIntegrationEventHandler` |
 
+### Transactional Inbox
+
+| Pattern | Key types |
+| --- | --- |
+| Inbox Message | `IInboxMessage`, `InboxMessageEntity`, `InboxMessageEntityTypeConfiguration` |
+| Storage | `IInboxMessageRepository`, `EfInboxMessageRepository` |
+| Inbox | `IInbox`, `Inbox`, `ServiceCollectionExtensions.AddInbox` |
+| Cleaner | `IInboxCleaner`, `InboxCleaner`, `BackgroundInboxCleaner` |
+
 ### Rebus
 
 | Pattern | Key types |
 | --- | --- |
 | Publisher | `RebusIntegrationEventDispatcher`, `ServiceCollectionExtensions.AddRebusIntegrationEventDispatcher` |
 | Consumer lane | `HostBuilderExtensions.AddIntegrationEventLane`, `IntegrationEventLane`, `IntegrationEventMessageHandler<TEvent>` |
+| Deduplication | `IntegrationEventLane.UseInbox`, `IntegrationEventLaneConsumer` |
 | Retry policy | `IntegrationEventRetryPolicy`, `IntegrationEventRetryDecision`, `DeferIntegrationEvent`, `DeadLetterIntegrationEvent` |
 
 ### Endpoints
